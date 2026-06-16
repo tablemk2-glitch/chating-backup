@@ -84,24 +84,49 @@ function parseChat(text) {
   chatData = [];
   const characters = new Set();
 
-  // BOM 제거
   text = text.replace(/^\uFEFF/, "");
   const lines = text.split(/\r?\n/);
 
-  // ── 안드로이드 포맷 ──────────────────────────────────────
+  const timestampPrefix = /^\d{4}년 \d+월 \d+일\s(?:오전|오후)\s\d+:\d+/;
+
+  // ── 안드로이드 포맷 ────────────────────────────────────
   const regexAndroidMain  = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)[,\s]\s*(.+?)\s*:(.*)/;
   const regexAndroidColon = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+):([^:]+):(.*)/;
 
-  // ── 아이폰 포맷 ──────────────────────────────────────────
-  // 이름은 반드시 공백 없는 한 단어(\S+), 이후 전부 메시지
-  // [숫자] 태그는 있을 수도 없을 수도 있음
-  const regexIOS = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)\s(?:\[\d+\]\s)?(\S+)\s(.*)/;
+  // ── 아이폰 포맷: 타임스탬프 + 선택적 태그 + 이름 후보 추출 ──
+  // "2026년 2월 11일 오전 1:28 [아쿠아리움] 홍연지 메시지"
+  // "2026년 2월 11일 오전 12:33 시스템 메시지"
+  const regexIOSRaw = /^\d{4}년 \d+월 \d+일\s(?:오전|오후)\s\d+:\d+\s(?:\[[^\]]+\]\s)?(\S+)\s/;
 
-  // 타임스탬프로 시작하는 줄 판별
-  const timestampPrefix = /^\d{4}년 \d+월 \d+일\s(?:오전|오후)\s\d+:\d+/;
+  // ── Step 1: 아이폰 포맷인지 판별 + 이름 후보 빈도 계산 ──
+  const isAndroid = lines.some(l => regexAndroidMain.test(l) || regexAndroidColon.test(l));
 
+  let knownNames = null; // null이면 안드로이드 모드
+
+  if (!isAndroid) {
+    const freq = {};
+    lines.forEach(line => {
+      const m = line.match(regexIOSRaw);
+      if (!m) return;
+      const token = m[1];
+      freq[token] = (freq[token] || 0) + 1;
+    });
+
+    // 2회 이상 등장한 토큰 → 이름으로 확정
+    knownNames = new Set(
+      Object.entries(freq)
+        .filter(([, count]) => count >= 2)
+        .map(([name]) => name)
+    );
+  }
+
+  // ── 아이폰 파싱용 정규식 (태그 그룹 캡처 포함) ──
+  // match[4] = 태그 내용(있을 때), match[5] = 이름, match[6] = 메시지
+  const regexIOS = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)\s(?:\[([^\]]+)\]\s)?(\S+)\s(.*)/;
+
+  // ── Step 2: 본 파싱 ────────────────────────────────────
   lines.forEach(line => {
-    // 1) 안드로이드 포맷 시도
+    // 안드로이드 포맷 시도
     let match = line.match(regexAndroidMain) || line.match(regexAndroidColon);
     if (match) {
       const date    = match[1].trim();
@@ -115,27 +140,38 @@ function parseChat(text) {
       return;
     }
 
-    // 2) 아이폰 포맷 시도
-    match = line.match(regexIOS);
-    if (match) {
-      const date    = match[1].trim();
-      const ampm    = match[2].trim();
-      const time    = match[3].trim();
-      const name    = match[4].trim();
-      const message = match[5].trim();
-      if (!name) return;
-      chatData.push({ date, ampm, time, name, message });
-      characters.add(name);
-      return;
+    // 아이폰 포맷 시도
+    if (knownNames !== null) {
+      match = line.match(regexIOS);
+      if (match) {
+        const date      = match[1].trim();
+        const ampm      = match[2].trim();
+        const time      = match[3].trim();
+        const candidate = match[5].trim();
+
+        // ✅ 빈도 기반으로 확정된 이름인지 검증
+        if (knownNames.has(candidate)) {
+          const message = match[6].trim();
+          chatData.push({ date, ampm, time, name: candidate, message });
+          characters.add(candidate);
+          return;
+        }
+
+        // 이름 후보가 아닐 경우 → 이름+이후 전체가 메시지인 경우
+        // (1회성 단어가 이름 자리에 온 엣지케이스 처리)
+        const fullMessage = (match[5] + " " + match[6]).trim();
+        // 직전 메시지가 같은 타임스탬프라면 이어붙임, 아니면 "알 수 없음"으로 저장
+        chatData.push({ date, ampm, time, name: "알 수 없음", message: fullMessage });
+        return;
+      }
     }
 
-    // 3) 타임스탬프 없는 줄 → 이전 메시지에 이어 붙임 (멀티라인)
+    // 타임스탬프 없는 줄 → 멀티라인으로 이어 붙임
     if (chatData.length > 0 && !timestampPrefix.test(line)) {
       chatData[chatData.length - 1].message += "\n" + line;
     }
   });
 
-  // 앞뒤 공백 정리 & 빈 메시지 제거
   chatData.forEach(c => { c.message = c.message.trim(); });
   chatData = chatData.filter(c => c.message.length > 0);
 
