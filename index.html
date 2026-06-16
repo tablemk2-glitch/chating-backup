@@ -7,7 +7,6 @@
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-
 <header class="topbar">
   <div class="topbar-left">
     <span class="logo-icon">💬</span>
@@ -26,18 +25,28 @@
     <button class="btn btn-download" id="downloadBtn">💾 HTML 저장</button>
   </div>
 </header>
-
 <div class="layout">
-
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <h2>대화 참여자</h2>
-      <span class="character-count" id="characterCount"></span>
+      <span class="character-count" id="characterCount">0</span>
     </div>
+
+    <!-- 등장인물 추가 입력 -->
+    <div class="char-add-wrap">
+      <input
+        type="text"
+        id="addCharInput"
+        placeholder="이름 입력 후 추가"
+        autocomplete="off"
+        maxlength="30"
+      >
+      <button id="addCharBtn" title="추가">+</button>
+    </div>
+
     <div id="characterList"></div>
     <div class="sidebar-footer" id="statsBox"></div>
   </aside>
-
   <main id="chatContainer" class="chat-container">
     <div class="empty-state">
       <div class="empty-icon">📄</div>
@@ -46,12 +55,8 @@
       <label class="btn btn-upload-center" for="txtFile">파일 선택</label>
     </div>
   </main>
-
 </div>
-
-<!-- 토스트 알림 -->
 <div class="toast" id="toast"></div>
-
 <script src="js/app.js"></script>
 </body>
 </html>
