@@ -89,21 +89,19 @@ function parseChat(text) {
   const lines = text.split(/\r?\n/);
 
   // ── 안드로이드 포맷 ──────────────────────────────────────
-  // "2024년 1월 1일 오전 9:30, 홍길동 : 메시지"
-  // "2024년 1월 1일 오전 9:30:홍길동:메시지"
   const regexAndroidMain  = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)[,\s]\s*(.+?)\s*:(.*)/;
   const regexAndroidColon = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+):([^:]+):(.*)/;
 
   // ── 아이폰 포맷 ──────────────────────────────────────────
-  // "2026년 2월 11일 오전 12:34 [5] 사일영 메시지"
-  // "2026년 2월 11일 오전 12:33 시스템 메시지"
-  const regexIOS = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)\s(?:\[\d+\]\s)?([^\s].*?)\s(.+)/;
+  // 이름은 반드시 공백 없는 한 단어(\S+), 이후 전부 메시지
+  // [숫자] 태그는 있을 수도 없을 수도 있음
+  const regexIOS = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)\s(?:\[\d+\]\s)?(\S+)\s(.*)/;
 
-  // 타임스탬프로 시작하는 줄인지 판별
+  // 타임스탬프로 시작하는 줄 판별
   const timestampPrefix = /^\d{4}년 \d+월 \d+일\s(?:오전|오후)\s\d+:\d+/;
 
   lines.forEach(line => {
-    // 안드로이드 포맷 시도
+    // 1) 안드로이드 포맷 시도
     let match = line.match(regexAndroidMain) || line.match(regexAndroidColon);
     if (match) {
       const date    = match[1].trim();
@@ -117,13 +115,13 @@ function parseChat(text) {
       return;
     }
 
-    // 아이폰 포맷 시도
+    // 2) 아이폰 포맷 시도
     match = line.match(regexIOS);
     if (match) {
       const date    = match[1].trim();
       const ampm    = match[2].trim();
       const time    = match[3].trim();
-      const name    = match[4].trim().replace(/\s+/g, " ");
+      const name    = match[4].trim();
       const message = match[5].trim();
       if (!name) return;
       chatData.push({ date, ampm, time, name, message });
@@ -131,7 +129,7 @@ function parseChat(text) {
       return;
     }
 
-    // 타임스탬프 없는 줄 → 이전 메시지에 이어 붙임 (멀티라인)
+    // 3) 타임스탬프 없는 줄 → 이전 메시지에 이어 붙임 (멀티라인)
     if (chatData.length > 0 && !timestampPrefix.test(line)) {
       chatData[chatData.length - 1].message += "\n" + line;
     }
@@ -151,7 +149,6 @@ function parseChat(text) {
   renderStats(characters.size);
   renderChat();
 }
-
 /* =====================
    등장인물 목록 생성
    (시스템 포함 모든 캐릭터 동일하게 처리)
