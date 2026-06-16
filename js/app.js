@@ -153,10 +153,10 @@ function parseChat(text) {
   const regexAndroid = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)[,\s]*\s*([^:]+?)\s*:(.*)/;
 
   // ── 아이폰: 빈도 기반 이름 확정 ───────────────────────
-  const regexIOSRaw = /^\d{4}년 \d+월 \d+일\s(?:오전|오후)\s\d+:\d+\s(?:\[[^\]]+\]\s)?(\S+)\s/;
-  const regexIOS    = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)\s(?:\[([^\]]+)\]\s)?(\S+)\s(.*)/;
+   const regexIOSRaw = /^\d{4}년 \d+월 \d+일\s(?:오전|오후)\s\d+:\d+\s(?:\[[^\]]*\]\s+)?(\S+)\s/;
+   const regexIOS    = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)\s(?:\[[^\]]*\]\s+)?(\S+)\s(.*)/;
 
-  // 포맷 판별
+   // 포맷 판별
   const isAndroid = lines.some(l => regexAndroid.test(l));
 
   let knownNames = null;
@@ -201,16 +201,16 @@ function parseChat(text) {
         const date      = match[1].trim();
         const ampm      = match[2].trim();
         const time      = match[3].trim();
-        const candidate = match[5].trim();
-
+        const candidate = match[4].trim(); // ✅ [5] → 4번 (태그 캡처 제거로 인덱스 당겨짐)
+      
         if (knownNames.has(candidate)) {
-          const message = match[6].trim();
+          const message = match[5].trim(); // ✅ 5번
           chatData.push({ date, ampm, time, name: candidate, message });
-          newParsedSet.add(candidate);
+          characters.add(candidate);
           return;
         }
-
-        const fullMessage = (match[5] + " " + match[6]).trim();
+      
+        const fullMessage = (match[4] + " " + match[5]).trim();
         chatData.push({ date, ampm, time, name: "알 수 없음", message: fullMessage });
         return;
       }
