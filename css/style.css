@@ -257,10 +257,21 @@ body {
 
 .char-upload-btn {
   opacity: 0;
-  font-size: 15px;
-  transition: opacity 0.15s;
-  color: rgba(255,255,255,0.5);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 17px;
+  font-weight: 300;
+  line-height: 20px;
+  text-align: center;
+  flex-shrink: 0;
+  transition: opacity 0.15s, background 0.15s;
+  cursor: pointer;
+  user-select: none;
 }
+.char-upload-btn:hover { background: var(--accent-hover); }
 .character-row:hover .char-upload-btn { opacity: 1; }
 
 .sidebar-footer {
