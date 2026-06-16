@@ -145,15 +145,18 @@ function createCharacterList(characters) {
     const row = document.createElement("div");
     row.className = "character-row";
 
-    // ✅ 이름을 정규화해서 저장/조회 키로 사용
     const normalizedName = name.trim();
     const imgSrc  = profileImages[normalizedName] || DEFAULT_PROFILE;
     const safeName = escapeHtml(normalizedName);
 
+    // ✅ 이미 사진이 있으면 ✏️, 없으면 +
+    const hasProfile = !!profileImages[normalizedName];
+    const iconLabel  = hasProfile ? "✏️" : "+";
+
     row.innerHTML = `
       <img src="${escapeAttr(imgSrc)}" alt="${safeName} 프로필">
       <span class="char-name">${safeName}</span>
-      <span class="char-upload-btn" title="프로필 사진 변경">+</span>
+      <span class="char-upload-btn" title="${hasProfile ? "프로필 사진 변경" : "프로필 사진 추가"}">${iconLabel}</span>
       <input type="file" accept="image/*" hidden>
     `;
 
@@ -176,7 +179,6 @@ function createCharacterList(characters) {
 
       const reader = new FileReader();
       reader.onload = () => {
-        // ✅ 캔버스로 64×64 리사이즈 후 저장 (용량 절감)
         const image = new Image();
         image.onload = () => {
           const canvas = document.createElement("canvas");
@@ -184,7 +186,6 @@ function createCharacterList(characters) {
           canvas.height = 64;
           const ctx = canvas.getContext("2d");
 
-          // ✅ 이미지 비율 유지하며 중앙 크롭
           const size = Math.min(image.width, image.height);
           const sx = (image.width  - size) / 2;
           const sy = (image.height - size) / 2;
@@ -192,9 +193,12 @@ function createCharacterList(characters) {
 
           const compressed = canvas.toDataURL("image/jpeg", 0.8);
 
-          // ✅ 정규화된 이름으로 저장
           profileImages[normalizedName] = compressed;
           imgEl.src = compressed;
+
+          // ✅ 업로드 후 아이콘을 ✏️로 교체
+          editBtn.textContent = "✏️";
+          editBtn.title = "프로필 사진 변경";
 
           try {
             localStorage.setItem("profileImages", JSON.stringify(profileImages));
@@ -204,7 +208,6 @@ function createCharacterList(characters) {
             console.warn("localStorage 저장 실패:", err);
           }
 
-          // ✅ 채팅 뷰도 즉시 갱신
           renderChat(searchInput.value.trim());
         };
 
@@ -214,8 +217,6 @@ function createCharacterList(characters) {
 
       reader.onerror = () => showToast("❌ 파일 읽기 실패");
       reader.readAsDataURL(file);
-
-      // ✅ 같은 파일 재선택 가능하도록 초기화
       input.value = "";
     });
 
