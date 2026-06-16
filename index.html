@@ -2,64 +2,56 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport"
-content="width=device-width, initial-scale=1.0">
-
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BAND 채팅 백업기</title>
-
-<link rel="stylesheet"
-href="css/style.css">
+<link rel="stylesheet" href="css/style.css">
 </head>
-
 <body>
 
 <header class="topbar">
-
+  <div class="topbar-left">
+    <span class="logo-icon">💬</span>
     <h1>BAND 채팅 백업기</h1>
-
-    <div class="toolbar">
-
-        <input
-            type="file"
-            id="txtFile"
-            accept=".txt">
-
-        <input
-            type="text"
-            id="searchInput"
-            placeholder="채팅 검색">
-
-        <button id="downloadBtn">
-            HTML 저장
-        </button>
-
+  </div>
+  <div class="toolbar">
+    <label class="btn btn-upload" for="txtFile">
+      📂 TXT 불러오기
+      <input type="file" id="txtFile" accept=".txt" hidden>
+    </label>
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="searchInput" placeholder="메시지 검색…" autocomplete="off">
+      <button class="search-clear" id="searchClear" title="지우기">✕</button>
     </div>
-
+    <button class="btn btn-download" id="downloadBtn">💾 HTML 저장</button>
+  </div>
 </header>
 
 <div class="layout">
 
-    <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <h2>대화 참여자</h2>
+      <span class="character-count" id="characterCount"></span>
+    </div>
+    <div id="characterList"></div>
+    <div class="sidebar-footer" id="statsBox"></div>
+  </aside>
 
-        <h2>캐릭터</h2>
-
-        <div id="characterList"></div>
-
-    </aside>
-
-    <main id="chatContainer">
-
-        <div class="empty">
-
-            TXT 파일을 업로드하세요.
-
-        </div>
-
-    </main>
+  <main id="chatContainer" class="chat-container">
+    <div class="empty-state">
+      <div class="empty-icon">📄</div>
+      <p class="empty-title">TXT 파일을 불러오세요</p>
+      <p class="empty-desc">BAND 앱 → 채팅 → 더보기 → 내보내기로<br>저장한 .txt 파일을 업로드하세요.</p>
+      <label class="btn btn-upload-center" for="txtFile">파일 선택</label>
+    </div>
+  </main>
 
 </div>
 
-<script src="js/app.js"></script>
+<!-- 토스트 알림 -->
+<div class="toast" id="toast"></div>
 
+<script src="js/app.js"></script>
 </body>
 </html>
