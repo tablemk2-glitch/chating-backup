@@ -216,58 +216,6 @@ body {
   font-weight: 700;
 }
 
-/* =====================
-   등장인물 추가 입력
-   ===================== */
-.char-add-wrap {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.07);
-}
-
-.char-add-wrap input {
-  flex: 1;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 7px;
-  color: #e2e5ec;
-  font-size: 12px;
-  padding: 6px 9px;
-  outline: none;
-  transition: border 0.15s, background 0.15s;
-  min-width: 0;
-}
-.char-add-wrap input::placeholder { color: rgba(255,255,255,0.3); }
-.char-add-wrap input:focus {
-  border-color: var(--accent);
-  background: rgba(255,255,255,0.13);
-}
-
-.char-add-wrap button {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  border: none;
-  background: var(--accent);
-  color: #fff;
-  font-size: 18px;
-  font-weight: 400;
-  line-height: 1;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background 0.15s, transform 0.1s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.char-add-wrap button:hover  { background: var(--accent-hover); }
-.char-add-wrap button:active { transform: scale(0.93); }
-
-/* =====================
-   등장인물 목록
-   ===================== */
 #characterList {
   flex: 1;
   overflow-y: auto;
@@ -276,20 +224,11 @@ body {
 #characterList::-webkit-scrollbar { width: 4px; }
 #characterList::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
 
-/* 목록 비어있을 때 */
-.char-empty {
-  padding: 20px 16px;
-  text-align: center;
-  font-size: 12px;
-  color: rgba(255,255,255,0.25);
-  line-height: 1.7;
-}
-
 .character-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 12px;
+  gap: 10px;
+  padding: 8px 16px;
   cursor: pointer;
   transition: background 0.12s;
   position: relative;
@@ -316,22 +255,16 @@ body {
   text-overflow: ellipsis;
 }
 
-/* 수동 추가 배지 */
-.char-badge {
-  font-size: 11px;
-  opacity: 0.45;
-  flex-shrink: 0;
-}
-
 .char-upload-btn {
   opacity: 0;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: var(--accent);
   color: #fff;
-  font-size: 13px;
-  line-height: 22px;
+  font-size: 17px;
+  font-weight: 300;
+  line-height: 20px;
   text-align: center;
   flex-shrink: 0;
   transition: opacity 0.15s, background 0.15s;
@@ -340,25 +273,6 @@ body {
 }
 .char-upload-btn:hover { background: var(--accent-hover); }
 .character-row:hover .char-upload-btn { opacity: 1; }
-
-/* 수동 추가 삭제 버튼 */
-.char-delete-btn {
-  opacity: 0;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: rgba(255,80,80,0.7);
-  color: #fff;
-  font-size: 10px;
-  line-height: 18px;
-  text-align: center;
-  flex-shrink: 0;
-  transition: opacity 0.15s, background 0.15s;
-  cursor: pointer;
-  user-select: none;
-}
-.char-delete-btn:hover { background: rgba(255,60,60,0.9); }
-.character-row:hover .char-delete-btn { opacity: 1; }
 
 .sidebar-footer {
   padding: 12px 16px;
@@ -443,9 +357,9 @@ body {
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
-  align-self: flex-start;
+  align-self: flex-start;  /* flex-end → flex-start */
   border: 1.5px solid var(--divider);
-  margin-top: 2px;
+  margin-top: 2px;         /* 이름 텍스트 기준선과 미세 조정 */
 }
 
 .message .content { max-width: 72%; }
@@ -475,6 +389,8 @@ body {
   margin-top: 4px;
   padding-left: 2px;
 }
+
+/* 시스템 메시지: 일반 캐릭터와 동일하게 표시 (별도 스타일 없음) */
 
 /* =====================
    강조 / 멘션 / RP
