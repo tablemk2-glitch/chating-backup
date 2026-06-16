@@ -1,5 +1,5 @@
 /* =====================
-   BAND 채팅 백업기 v2.1
+   BAND 채팅 백업기 v2.2
    ===================== */
 
 /* =====================
@@ -9,19 +9,27 @@
 // 기본 프로필: PNG 파일 의존 없이 SVG를 base64로 내장
 const DEFAULT_PROFILE = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0MCA0MCI+CiAgPGNpcmNsZSBjeD0iMjAiIGN5PSIyMCIgcj0iMjAiIGZpbGw9IiNjOWNkZDYiLz4KICA8Y2lyY2xlIGN4PSIyMCIgY3k9IjE2IiByPSI3IiBmaWxsPSIjZmZmIi8+CiAgPGVsbGlwc2UgY3g9IjIwIiBjeT0iMzYiIHJ4PSIxMiIgcnk9IjkiIGZpbGw9IiNmZmYiLz4KPC9zdmc+Cg==";
 
-// profileImages를 최상단에서 먼저 선언 (ReferenceError 방지)
+// ✅ profileImages 최상단 선언 (ReferenceError 방지)
 let profileImages = {};
 try {
   const raw = JSON.parse(localStorage.getItem("profileImages") || "{}");
   // 저장된 키를 정규화하여 재구성
   for (const [key, val] of Object.entries(raw)) {
-    profileImages[key.trim().replace(/\s+/g, " ")] = val;
+    profileImages[normName(key)] = val;
   }
 } catch {
   profileImages = {};
 }
 
 let chatData = [];
+
+/* =====================
+   이름 정규화 유틸
+   어디서든 동일한 규칙으로 이름 키를 만들도록 한 곳에서 관리
+   ===================== */
+function normName(str) {
+  return String(str).trim().replace(/\s+/g, " ");
+}
 
 /* =====================
    DOM 참조
@@ -69,7 +77,7 @@ function handleTxtUpload(e) {
   }
 
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload  = () => {
     parseChat(reader.result);
     showToast("✅ 파일을 불러왔습니다.");
   };
@@ -84,56 +92,93 @@ function parseChat(text) {
   chatData = [];
   const characters = new Set();
 
+  // BOM 제거
   text = text.replace(/^\uFEFF/, "");
   const lines = text.split(/\r?\n/);
 
   const timestampPrefix = /^\d{4}년 \d+월 \d+일\s(?:오전|오후)\s\d+:\d+/;
 
-  // ── 안드로이드 포맷 ────────────────────────────────────
+  // ── 안드로이드 정규식 ──────────────────────────────────
+  // 신버전: "2024년 1월 1일 오전 9:30,홍길동:메시지"
+  //         "2024년 1월 1일 오전 9:30, 홍 길동 : 메시지"
+  // 공백구분: "2024년 1월 1일 오전 9:30 홍길동:메시지"
   const regexAndroidMain  = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)[,\s]\s*(.+?)\s*:(.*)/;
+  // 구버전(콜론구분): "2024년 1월 1일 오전 9:30:홍길동:메시지"
+  // 이름에 콜론이 없으므로 [^:]+ 로 안전하게 구분
   const regexAndroidColon = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+):([^:]+):(.*)/;
 
-  // ── 아이폰 포맷: 타임스탬프 + 선택적 태그 + 이름 후보 추출 ──
-  // "2026년 2월 11일 오전 1:28 [아쿠아리움] 홍연지 메시지"
-  // "2026년 2월 11일 오전 12:33 시스템 메시지"
-  const regexIOSRaw = /^\d{4}년 \d+월 \d+일\s(?:오전|오후)\s\d+:\d+\s(?:\[[^\]]+\]\s)?(\S+)\s/;
+  // ── 포맷 자동 판별 ─────────────────────────────────────
+  // 안드로이드 포맷이면 true (콜론·쉼표 구분자가 있는 줄이 존재)
+  const isAndroid = lines.some(
+    l => regexAndroidMain.test(l) || regexAndroidColon.test(l)
+  );
 
-  // ── Step 1: 아이폰 포맷인지 판별 + 이름 후보 빈도 계산 ──
-  const isAndroid = lines.some(l => regexAndroidMain.test(l) || regexAndroidColon.test(l));
-
+  // ── 아이폰 포맷 전처리: 이름 후보 빈도 계산 ───────────
+  // "2024년 1월 1일 오전 9:30 [태그] 이름 메시지" 구조에서
+  // 타임스탬프(+태그) 이후 1~3 단어 조합을 모두 카운팅 후 이름 확정
   let knownNames = null; // null이면 안드로이드 모드
 
   if (!isAndroid) {
+    const regexIOSRest = /^\d{4}년 \d+월 \d+일\s(?:오전|오후)\s\d+:\d+\s(?:\[[^\]]+\]\s)?(.*)/;
     const freq = {};
+
     lines.forEach(line => {
-      const m = line.match(regexIOSRaw);
+      const m = line.match(regexIOSRest);
       if (!m) return;
-      const token = m[1];
-      freq[token] = (freq[token] || 0) + 1;
+      const words = m[1].trim().split(/\s+/);
+      // 메시지가 최소 1단어 남도록 이름 후보 길이 제한
+      for (let len = 1; len <= Math.min(3, words.length - 1); len++) {
+        const candidate = words.slice(0, len).join(" ");
+        freq[candidate] = (freq[candidate] || 0) + 1;
+      }
     });
 
-    // 2회 이상 등장한 토큰 → 이름으로 확정
-    knownNames = new Set(
+    // ✅ 수정①: 2회 이상 등장한 후보만 이름으로 확정 (1회성 노이즈 제거)
+    const confirmed = new Set(
       Object.entries(freq)
-        .filter(([, count]) => count >= 2)
-        .map(([name]) => name)
+        .filter(([, c]) => c >= 2)
+        .map(([n]) => n)
     );
+
+    // ✅ 수정②: prefix 중복 제거
+    // "홍"이 confirmed에 있어도 "홍 길동"도 있으면 "홍"은 제거
+    // → 가장 긴 이름을 우선 인정
+    knownNames = new Set();
+    [...confirmed]
+      .sort((a, b) => b.length - a.length) // 긴 것 먼저
+      .forEach(name => {
+        const isRedundantPrefix = [...knownNames].some(n => n.startsWith(name + " "));
+        if (!isRedundantPrefix) knownNames.add(name);
+      });
   }
 
-  // ── 아이폰 파싱용 정규식 (태그 그룹 캡처 포함) ──
-  // match[4] = 태그 내용(있을 때), match[5] = 이름, match[6] = 메시지
-  const regexIOS = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)\s(?:\[([^\]]+)\]\s)?(\S+)\s(.*)/;
+  // ── 아이폰 본 파싱용 정규식 ───────────────────────────
+  const regexIOS = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)\s(?:\[([^\]]+)\]\s)?(.*)/;
 
-  // ── Step 2: 본 파싱 ────────────────────────────────────
+  // knownNames에서 가장 긴 이름을 우선 매칭 (탐욕적 이름 탐색)
+  function findIOSName(rest) {
+    const words = rest.split(/\s+/);
+    for (let len = Math.min(3, words.length - 1); len >= 1; len--) {
+      const candidate = words.slice(0, len).join(" ");
+      if (knownNames.has(candidate)) {
+        return [candidate, words.slice(len).join(" ")];
+      }
+    }
+    return [null, rest]; // 이름 미확정
+  }
+
+  // ── 본 파싱 루프 ───────────────────────────────────────
   lines.forEach(line => {
+
     // 안드로이드 포맷 시도
-    let match = line.match(regexAndroidMain) || line.match(regexAndroidColon);
-    if (match) {
-      const date    = match[1].trim();
-      const ampm    = match[2].trim();
-      const time    = match[3].trim();
-      const name    = match[4].trim().replace(/\s+/g, " ");
-      const message = match.slice(5).join(":").trim();
+    const matchA = line.match(regexAndroidMain) || line.match(regexAndroidColon);
+    if (matchA) {
+      const date    = matchA[1].trim();
+      const ampm    = matchA[2].trim();
+      const time    = matchA[3].trim();
+      const name    = normName(matchA[4]); // ✅ normName으로 통일
+      // slice(5).join(":") — 메시지 본문에 ':' 포함돼도 손실 없음
+      const message = matchA.slice(5).join(":").trim();
       if (!name) return;
       chatData.push({ date, ampm, time, name, message });
       characters.add(name);
@@ -142,36 +187,37 @@ function parseChat(text) {
 
     // 아이폰 포맷 시도
     if (knownNames !== null) {
-      match = line.match(regexIOS);
-      if (match) {
-        const date      = match[1].trim();
-        const ampm      = match[2].trim();
-        const time      = match[3].trim();
-        const candidate = match[5].trim();
+      const matchI = line.match(regexIOS);
+      if (matchI) {
+        const date = matchI[1].trim();
+        const ampm = matchI[2].trim();
+        const time = matchI[3].trim();
+        const rest = matchI[5].trim(); // 태그 이후 나머지
 
-        // ✅ 빈도 기반으로 확정된 이름인지 검증
-        if (knownNames.has(candidate)) {
-          const message = match[6].trim();
-          chatData.push({ date, ampm, time, name: candidate, message });
-          characters.add(candidate);
-          return;
+        const [name, message] = findIOSName(rest);
+
+        if (name) {
+          // ✅ 수정③: normName 적용 (이름 키 일관성)
+          const normN = normName(name);
+          chatData.push({ date, ampm, time, name: normN, message: message.trim() });
+          characters.add(normN);
         }
-
-        // 이름 후보가 아닐 경우 → 이름+이후 전체가 메시지인 경우
-        // (1회성 단어가 이름 자리에 온 엣지케이스 처리)
-        const fullMessage = (match[5] + " " + match[6]).trim();
-        // 직전 메시지가 같은 타임스탬프라면 이어붙임, 아니면 "알 수 없음"으로 저장
-        chatData.push({ date, ampm, time, name: "알 수 없음", message: fullMessage });
+        // 이름 미확정 줄은 조용히 스킵 (쓰레기 줄 방지)
         return;
       }
     }
 
-    // 타임스탬프 없는 줄 → 멀티라인으로 이어 붙임
-    if (chatData.length > 0 && !timestampPrefix.test(line)) {
+    // ✅ 수정④: 멀티라인 이어붙이기 — 빈 줄은 스킵
+    if (
+      chatData.length > 0 &&
+      line.trim() !== "" &&              // 빈 줄 제외
+      !timestampPrefix.test(line)        // 타임스탬프 줄 제외
+    ) {
       chatData[chatData.length - 1].message += "\n" + line;
     }
   });
 
+  // 앞뒤 공백 정리 + 빈 메시지 제거
   chatData.forEach(c => { c.message = c.message.trim(); });
   chatData = chatData.filter(c => c.message.length > 0);
 
@@ -185,6 +231,7 @@ function parseChat(text) {
   renderStats(characters.size);
   renderChat();
 }
+
 /* =====================
    등장인물 목록 생성
    (시스템 포함 모든 캐릭터 동일하게 처리)
@@ -197,18 +244,15 @@ function createCharacterList(characters) {
     const row = document.createElement("div");
     row.className = "character-row";
 
-    const normalizedName = name.trim();
-    const imgSrc  = profileImages[normalizedName] || DEFAULT_PROFILE;
-    const safeName = escapeHtml(normalizedName);
-
-    // ✅ 이미 사진이 있으면 ✏️, 없으면 +
-    const hasProfile = !!profileImages[normalizedName];
-    const iconLabel  = hasProfile ? "✏️" : "+";
+    const normN    = normName(name);
+    const imgSrc   = profileImages[normN] || DEFAULT_PROFILE;
+    const safeName = escapeHtml(normN);
+    const hasProfile = !!profileImages[normN];
 
     row.innerHTML = `
       <img src="${escapeAttr(imgSrc)}" alt="${safeName} 프로필">
       <span class="char-name">${safeName}</span>
-      <span class="char-upload-btn" title="${hasProfile ? "프로필 사진 변경" : "프로필 사진 추가"}">${iconLabel}</span>
+      <span class="char-upload-btn" title="${hasProfile ? "프로필 사진 변경" : "프로필 사진 추가"}">${hasProfile ? "✏️" : "+"}</span>
       <input type="file" accept="image/*" hidden>
     `;
 
@@ -231,30 +275,27 @@ function createCharacterList(characters) {
 
       const reader = new FileReader();
       reader.onload = () => {
+        // 64×64로 리사이즈 & JPEG 압축
         const image = new Image();
         image.onload = () => {
           const canvas = document.createElement("canvas");
           canvas.width  = 64;
           canvas.height = 64;
-          const ctx = canvas.getContext("2d");
-
+          const ctx  = canvas.getContext("2d");
           const size = Math.min(image.width, image.height);
-          const sx = (image.width  - size) / 2;
-          const sy = (image.height - size) / 2;
+          const sx   = (image.width  - size) / 2;
+          const sy   = (image.height - size) / 2;
           ctx.drawImage(image, sx, sy, size, size, 0, 0, 64, 64);
-
           const compressed = canvas.toDataURL("image/jpeg", 0.8);
 
-          profileImages[normalizedName] = compressed;
+          profileImages[normN] = compressed;
           imgEl.src = compressed;
-
-          // ✅ 업로드 후 아이콘을 ✏️로 교체
           editBtn.textContent = "✏️";
           editBtn.title = "프로필 사진 변경";
 
           try {
             localStorage.setItem("profileImages", JSON.stringify(profileImages));
-            showToast(`✅ ${normalizedName} 프로필이 변경되었습니다.`);
+            showToast(`✅ ${normN} 프로필이 변경되었습니다.`);
           } catch (err) {
             showToast("⚠️ 프로필 저장 실패: 저장 공간이 부족합니다.");
             console.warn("localStorage 저장 실패:", err);
@@ -262,11 +303,9 @@ function createCharacterList(characters) {
 
           renderChat(searchInput.value.trim());
         };
-
         image.onerror = () => showToast("❌ 이미지 로드 실패");
         image.src = reader.result;
       };
-
       reader.onerror = () => showToast("❌ 파일 읽기 실패");
       reader.readAsDataURL(file);
       input.value = "";
@@ -319,7 +358,6 @@ function renderChat(keyword = "") {
 
     matchCount++;
 
-    // 날짜 구분선
     if (currentDate !== chat.date) {
       currentDate = chat.date;
       const divider = document.createElement("div");
@@ -331,7 +369,6 @@ function renderChat(keyword = "") {
     const wrapper = document.createElement("div");
     wrapper.className = "message";
 
-    // 프로필 이미지 (모든 캐릭터 동일하게 — DEFAULT_PROFILE은 base64 내장)
     const profile = profileImages[chat.name] || DEFAULT_PROFILE;
 
     const profileImg = document.createElement("img");
@@ -357,7 +394,6 @@ function renderChat(keyword = "") {
     content.appendChild(nameEl);
     content.appendChild(bubble);
     content.appendChild(timeEl);
-
     wrapper.appendChild(profileImg);
     wrapper.appendChild(content);
     fragment.appendChild(wrapper);
@@ -383,30 +419,20 @@ function renderChat(keyword = "") {
    메시지 꾸미기
    ===================== */
 function formatMessage(text, keyword = "") {
+  // 1. HTML 이스케이프
   text = escapeHtml(text);
-
-  // ✅ 줄바꿈 → <br> 변환 (escapeHtml 이후에 처리해야 안전)
+  // 2. 줄바꿈 → <br> (escapeHtml 이후에 처리해야 안전)
   text = text.replace(/\n/g, "<br>");
-
-  text = text.replace(
-    /@([가-힣a-zA-Z0-9_]+)/g,
-    '<span class="mention">@$1</span>'
-  );
-
-  text = text.replace(
-    /\((.*?)\)/g,
-    '<span class="rp">($1)</span>'
-  );
-
+  // 3. @멘션
+  text = text.replace(/@([가-힣a-zA-Z0-9_]+)/g, '<span class="mention">@$1</span>');
+  // 4. RP 괄호
+  text = text.replace(/\((.*?)\)/g, '<span class="rp">($1)</span>');
+  // 5. 검색어 강조
   if (keyword) {
     const escapedKw = escapeHtml(keyword);
     const regex = new RegExp(escapeRegex(escapedKw), "gi");
-    text = text.replace(
-      regex,
-      match => `<span class="highlight">${match}</span>`
-    );
+    text = text.replace(regex, match => `<span class="highlight">${match}</span>`);
   }
-
   return text;
 }
 
@@ -415,11 +441,11 @@ function formatMessage(text, keyword = "") {
    ===================== */
 function escapeHtml(text) {
   return String(text)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+    .replace(/&/g,  "&amp;")
+    .replace(/</g,  "&lt;")
+    .replace(/>/g,  "&gt;")
+    .replace(/"/g,  "&quot;")
+    .replace(/'/g,  "&#39;");
 }
 
 function escapeAttr(text) {
@@ -435,9 +461,6 @@ function escapeRegex(str) {
 
 /* =====================
    HTML 백업
-   exportHTML: 저장된 HTML이 단독으로 스크롤되도록
-   · layout/height 의존 CSS 제거하고 단순 스크롤 문서로 재구성
-   · 프로필 이미지가 base64이므로 외부 파일 참조 없음
    ===================== */
 async function exportHTML() {
   try {
@@ -452,24 +475,10 @@ async function exportHTML() {
       }
     }
 
-    // ✅ 프로필 이미지를 CSS 변수로 추출 (메시지마다 반복 삽입 제거)
-    let profileCss = ":root {\n";
-    for (const [name, src] of Object.entries(profileImages)) {
-      const safeName = name.replace(/[^a-zA-Z0-9가-힣]/g, "_");
-      profileCss += `  --profile-${safeName}: url("${src}");\n`;
-    }
-    profileCss += "}\n";
-
-    // ✅ img src 대신 CSS 변수 참조하도록 채팅 HTML 변환
-    let chatHTML = chatContainer.innerHTML;
-    for (const [name, src] of Object.entries(profileImages)) {
-      const safeName = name.replace(/[^a-zA-Z0-9가-힣]/g, "_");
-      // base64 src를 CSS background-image 방식으로 교체
-      chatHTML = chatHTML.replaceAll(
-        `src="${src}"`,
-        `src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" data-profile="${safeName}"`
-      );
-    }
+    // ✅ 수정⑤: chatContainer.innerHTML 그대로 사용
+    // 프로필 이미지가 이미 base64 src로 DOM에 렌더링되어 있으므로
+    // CSS content 트릭(브라우저 미지원) 없이 그대로 복사하면 이미지가 유지됨
+    const chatHTML = chatContainer.innerHTML;
 
     const html = `<!DOCTYPE html>
 <html lang="ko">
@@ -479,31 +488,40 @@ async function exportHTML() {
 <title>BAND 채팅 백업</title>
 <style>
 ${css}
-${profileCss}
 
-html, body { height: auto !important; overflow: auto !important; background: #f0f2f5; }
-body { display: block !important; padding: 20px; }
-#chatContainer { max-width: 760px; margin: 0 auto; overflow: visible !important; height: auto !important; flex: unset !important; }
+/* 백업 전용 오버라이드: 앱 레이아웃 해제 → 일반 스크롤 문서로 */
+html, body {
+  height: auto !important;
+  overflow: auto !important;
+  background: #f0f2f5;
+}
+body {
+  display: block !important;
+  padding: 20px;
+}
+#chatContainer {
+  max-width: 760px;
+  margin: 0 auto;
+  overflow: visible !important;
+  height: auto !important;
+  flex: unset !important;
+}
 .message { animation: none !important; }
-
-/* ✅ CSS 변수로 프로필 이미지 적용 */
-${Object.keys(profileImages).map(name => {
-  const safeName = name.replace(/[^a-zA-Z0-9가-힣]/g, "_");
-  return `img[data-profile="${safeName}"] { content: var(--profile-${safeName}); }`;
-}).join("\n")}
 </style>
 </head>
 <body>
-<div id="chatContainer">${chatHTML}</div>
+<div id="chatContainer">
+${chatHTML}
+</div>
 </body>
 </html>`;
 
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    const now = new Date();
+    const a    = document.createElement("a");
+    a.href     = URL.createObjectURL(blob);
+    const now     = new Date();
     const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}`;
-    a.download = `band_backup_${dateStr}.html`;
+    a.download    = `band_backup_${dateStr}.html`;
     a.click();
     URL.revokeObjectURL(a.href);
     showToast("✅ HTML 파일이 저장되었습니다.");
