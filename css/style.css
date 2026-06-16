@@ -357,8 +357,9 @@ body {
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
-  align-self: flex-end;
+  align-self: flex-start;  /* flex-end → flex-start */
   border: 1.5px solid var(--divider);
+  margin-top: 2px;         /* 이름 텍스트 기준선과 미세 조정 */
 }
 
 .message .content { max-width: 72%; }
