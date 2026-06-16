@@ -1,13 +1,15 @@
 /* =====================
-   BAND 채팅 백업기 v2
+   BAND 채팅 백업기 v2.1
    ===================== */
 
 /* =====================
    상수 & 상태
    ===================== */
-const DEFAULT_PROFILE = "assets/default-profile.png";
 
-// ✅ 수정: profileImages를 최상단에서 먼저 선언 (ReferenceError 방지)
+// 기본 프로필: PNG 파일 의존 없이 SVG를 base64로 내장
+const DEFAULT_PROFILE = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0MCA0MCI+CiAgPGNpcmNsZSBjeD0iMjAiIGN5PSIyMCIgcj0iMjAiIGZpbGw9IiNjOWNkZDYiLz4KICA8Y2lyY2xlIGN4PSIyMCIgY3k9IjE2IiByPSI3IiBmaWxsPSIjZmZmIi8+CiAgPGVsbGlwc2UgY3g9IjIwIiBjeT0iMzYiIHJ4PSIxMiIgcnk9IjkiIGZpbGw9IiNmZmYiLz4KPC9zdmc+Cg==";
+
+// profileImages를 최상단에서 먼저 선언 (ReferenceError 방지)
 let profileImages = {};
 try {
   profileImages = JSON.parse(localStorage.getItem("profileImages") || "{}");
@@ -16,9 +18,6 @@ try {
 }
 
 let chatData = [];
-
-// 시스템 메시지 이름 목록 (다국어 대응)
-const SYSTEM_NAMES = new Set(["시스템", "System", "BAND", "band"]);
 
 /* =====================
    DOM 참조
@@ -60,7 +59,6 @@ function handleTxtUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
 
-  // .txt 확장자 검증
   if (!file.name.toLowerCase().endsWith(".txt")) {
     showToast("❌ .txt 파일만 업로드할 수 있습니다.");
     return;
@@ -84,22 +82,20 @@ function parseChat(text) {
 
   const lines = text.split(/\r?\n/);
 
-  // ✅ 수정: 메시지 본문에 ':' 가 포함돼도 올바르게 캡처하도록
-  // 앞 4그룹은 고정, 5번째 그룹은 나머지 전체
-  const regex = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+),(.*?):(.*)/;
-
-  // 두 번째 포맷 대응 (구버전 BAND: 시간 구분자가 ':' 인 경우)
+  // 쉼표 구분 포맷: 2024년 1월 1일 오전 9:30,홍길동:메시지
+  const regex    = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+),(.*?):(.*)/;
+  // 콜론 구분 포맷 (구버전): 2024년 1월 1일 오전 9:30:홍길동:메시지
   const regexAlt = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+):(.*?):(.*)/;
 
   lines.forEach(line => {
-    let match = line.match(regex) || line.match(regexAlt);
+    const match = line.match(regex) || line.match(regexAlt);
     if (!match) return;
 
     const date    = match[1].trim();
     const ampm    = match[2].trim();
     const time    = match[3].trim();
     const name    = match[4].trim();
-    // ✅ 수정: 5번째 이후 전체를 메시지로 합침 (콜론 포함 메시지 대응)
+    // slice(5).join(":") — 메시지 본문에 ':' 포함돼도 손실 없음
     const message = match.slice(5).join(":").trim();
 
     if (!name || !message) return;
@@ -121,6 +117,7 @@ function parseChat(text) {
 
 /* =====================
    등장인물 목록 생성
+   (시스템 포함 모든 캐릭터 동일하게 처리)
    ===================== */
 function createCharacterList(characters) {
   characterList.innerHTML = "";
@@ -130,23 +127,20 @@ function createCharacterList(characters) {
     const row = document.createElement("div");
     row.className = "character-row";
 
-    const imgSrc = profileImages[name] || DEFAULT_PROFILE;
-
-    // ✅ 수정: name을 escapeHtml 처리하여 XSS 방지
+    const imgSrc  = profileImages[name] || DEFAULT_PROFILE;
     const safeName = escapeHtml(name);
 
     row.innerHTML = `
       <img src="${escapeAttr(imgSrc)}" alt="${safeName} 프로필">
       <span class="char-name">${safeName}</span>
-      <span class="char-upload-btn" title="프로필 사진 변경">🖼</span>
+      <span class="char-upload-btn" title="프로필 사진 변경">+</span>
       <input type="file" accept="image/*" hidden>
     `;
 
-    const input  = row.querySelector("input[type=file]");
-    const img    = row.querySelector("img");
+    const input   = row.querySelector("input[type=file]");
+    const img     = row.querySelector("img");
     const editBtn = row.querySelector(".char-upload-btn");
 
-    // 편집 버튼 또는 이미지 클릭 시 파일 선택
     editBtn.addEventListener("click", e => {
       e.stopPropagation();
       input.click();
@@ -156,9 +150,8 @@ function createCharacterList(characters) {
       const file = e.target.files[0];
       if (!file) return;
 
-      // ✅ 추가: 이미지 크기 경고 (1MB 초과)
       if (file.size > 1024 * 1024) {
-        showToast("⚠️ 이미지가 1MB를 초과합니다. localStorage 한도에 주의하세요.");
+        showToast("⚠️ 이미지가 1MB를 초과합니다. 저장 공간에 주의하세요.");
       }
 
       const reader = new FileReader();
@@ -166,7 +159,6 @@ function createCharacterList(characters) {
         profileImages[name] = reader.result;
         img.src = reader.result;
 
-        // ✅ 추가: localStorage 저장 실패 처리
         try {
           localStorage.setItem("profileImages", JSON.stringify(profileImages));
         } catch (err) {
@@ -187,7 +179,7 @@ function createCharacterList(characters) {
    통계
    ===================== */
 function renderStats(charCount) {
-  const total = chatData.length;
+  const total   = chatData.length;
   const dateSet = new Set(chatData.map(c => c.date));
   statsBox.innerHTML =
     `총 <strong>${total.toLocaleString()}</strong>개 메시지<br>` +
@@ -211,12 +203,11 @@ function renderChat(keyword = "") {
     return;
   }
 
-  // keyword 안전 처리 (정규식 특수문자 이스케이프)
   const safeKeyword = keyword ? escapeRegex(keyword) : "";
 
   let currentDate = "";
-  let matchCount = 0;
-  const fragment = document.createDocumentFragment();
+  let matchCount  = 0;
+  const fragment  = document.createDocumentFragment();
 
   chatData.forEach(chat => {
     if (
@@ -239,24 +230,20 @@ function renderChat(keyword = "") {
     const wrapper = document.createElement("div");
     wrapper.className = "message";
 
-    if (SYSTEM_NAMES.has(chat.name)) {
-      wrapper.classList.add("system");
-    }
-
+    // 프로필 이미지 (모든 캐릭터 동일하게 — DEFAULT_PROFILE은 base64 내장)
     const profile = profileImages[chat.name] || DEFAULT_PROFILE;
 
-    // ✅ 수정: 프로필 src, alt 모두 이스케이프
     const profileImg = document.createElement("img");
     profileImg.className = "profile";
     profileImg.src = profile;
-    profileImg.alt = escapeHtml(chat.name);
+    profileImg.alt = chat.name;
 
     const content = document.createElement("div");
     content.className = "content";
 
     const nameEl = document.createElement("div");
     nameEl.className = "name";
-    nameEl.textContent = chat.name; // textContent = XSS 안전
+    nameEl.textContent = chat.name;
 
     const bubble = document.createElement("div");
     bubble.className = "bubble";
@@ -275,7 +262,6 @@ function renderChat(keyword = "") {
     fragment.appendChild(wrapper);
   });
 
-  // 검색 결과 없음
   if (safeKeyword && matchCount === 0) {
     const noResult = document.createElement("div");
     noResult.className = "no-result";
@@ -283,10 +269,8 @@ function renderChat(keyword = "") {
     fragment.appendChild(noResult);
   }
 
-  // ✅ 최적화: DocumentFragment 한 번에 삽입
   chatContainer.appendChild(fragment);
 
-  // 검색 시에는 최상단, 아니면 최하단으로 스크롤
   if (!safeKeyword) {
     chatContainer.scrollTop = chatContainer.scrollHeight;
   } else {
@@ -298,22 +282,18 @@ function renderChat(keyword = "") {
    메시지 꾸미기
    ===================== */
 function formatMessage(text, keyword = "") {
-  // 1. HTML 이스케이프 먼저
   text = escapeHtml(text);
 
-  // 2. @멘션
   text = text.replace(
     /@([가-힣a-zA-Z0-9_]+)/g,
     '<span class="mention">@$1</span>'
   );
 
-  // 3. RP 괄호 (이미 이스케이프된 상태이므로 &lt; 등 고려)
   text = text.replace(
     /\((.*?)\)/g,
     '<span class="rp">($1)</span>'
   );
 
-  // 4. 검색어 강조 (이미 이스케이프된 상태에서 매칭)
   if (keyword) {
     const escapedKw = escapeHtml(keyword);
     const regex = new RegExp(escapeRegex(escapedKw), "gi");
@@ -338,9 +318,6 @@ function escapeHtml(text) {
     .replace(/'/g, "&#39;");
 }
 
-/* =====================
-   속성값 이스케이프 (src, alt 등)
-   ===================== */
 function escapeAttr(text) {
   return String(text)
     .replace(/&/g, "&amp;")
@@ -348,19 +325,19 @@ function escapeAttr(text) {
     .replace(/'/g, "&#39;");
 }
 
-/* =====================
-   정규식 특수문자 이스케이프
-   ===================== */
 function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /* =====================
-   HTML 백업 (인라인 CSS)
+   HTML 백업
+   exportHTML: 저장된 HTML이 단독으로 스크롤되도록
+   · layout/height 의존 CSS 제거하고 단순 스크롤 문서로 재구성
+   · 프로필 이미지가 base64이므로 외부 파일 참조 없음
    ===================== */
 async function exportHTML() {
   try {
-    // ✅ 수정: fetch 대신 <link> 태그에서 직접 CSS를 읽어 file:// 환경에서도 동작
+    // 채팅 렌더링 CSS만 추출 (레이아웃/topbar 제외한 핵심 스타일)
     let css = "";
     const linkEl = document.querySelector('link[rel="stylesheet"]');
     if (linkEl) {
@@ -368,14 +345,13 @@ async function exportHTML() {
         const res = await fetch(linkEl.href);
         if (res.ok) css = await res.text();
       } catch {
-        // fetch 실패 시 (file://) — style 태그 수집으로 폴백
         document.querySelectorAll("style").forEach(s => { css += s.textContent; });
       }
     }
 
-    // 프로필 이미지를 base64 인라인으로 교체
     const chatHTML = chatContainer.innerHTML;
 
+    // 백업 HTML: body/html을 height:auto + overflow:auto로 덮어써서 스크롤 보장
     const html = `<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -383,9 +359,28 @@ async function exportHTML() {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BAND 채팅 백업</title>
 <style>
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans KR', sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }
-#chatContainer { max-width: 720px; margin: 0 auto; }
+/* 원본 스타일 */
 ${css}
+
+/* 백업 전용 오버라이드: 앱 레이아웃(height:100dvh, overflow:hidden) 해제 */
+html, body {
+  height: auto !important;
+  overflow: auto !important;
+  background: #f0f2f5;
+}
+body {
+  display: block !important;
+  padding: 20px;
+}
+#chatContainer {
+  max-width: 760px;
+  margin: 0 auto;
+  overflow: visible !important;
+  height: auto !important;
+  flex: unset !important;
+}
+/* 애니메이션 제거 (정적 문서) */
+.message { animation: none !important; }
 </style>
 </head>
 <body>
@@ -396,13 +391,12 @@ ${chatHTML}
 </html>`;
 
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = URL.createObjectURL(blob);
 
-    // 파일명에 날짜 포함
-    const now = new Date();
+    const now     = new Date();
     const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}`;
-    a.download = `band_backup_${dateStr}.html`;
+    a.download    = `band_backup_${dateStr}.html`;
     a.click();
     URL.revokeObjectURL(a.href);
 
