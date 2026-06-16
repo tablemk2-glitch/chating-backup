@@ -1,16 +1,19 @@
 /* =====================
-   BAND 채팅 백업기 v3.0
+   BAND 채팅 백업기 v2.1
    ===================== */
 
 /* =====================
    상수 & 상태
    ===================== */
+
+// 기본 프로필: PNG 파일 의존 없이 SVG를 base64로 내장
 const DEFAULT_PROFILE = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0MCA0MCI+CiAgPGNpcmNsZSBjeD0iMjAiIGN5PSIyMCIgcj0iMjAiIGZpbGw9IiNjOWNkZDYiLz4KICA8Y2lyY2xlIGN4PSIyMCIgY3k9IjE2IiByPSI3IiBmaWxsPSIjZmZmIi8+CiAgPGVsbGlwc2UgY3g9IjIwIiBjeT0iMzYiIHJ4PSIxMiIgcnk9IjkiIGZpbGw9IiNmZmYiLz4KPC9zdmc+Cg==";
 
-// profileImages: localStorage에서 복원 (키 정규화 포함)
+// profileImages를 최상단에서 먼저 선언 (ReferenceError 방지)
 let profileImages = {};
 try {
   const raw = JSON.parse(localStorage.getItem("profileImages") || "{}");
+  // 저장된 키를 정규화하여 재구성
   for (const [key, val] of Object.entries(raw)) {
     profileImages[key.trim().replace(/\s+/g, " ")] = val;
   }
@@ -18,17 +21,7 @@ try {
   profileImages = {};
 }
 
-// manualCharacters: txt 없이 수동 추가한 등장인물 목록
-let manualCharacters = [];
-try {
-  manualCharacters = JSON.parse(localStorage.getItem("manualCharacters") || "[]");
-} catch {
-  manualCharacters = [];
-}
-
 let chatData = [];
-// txt에서 파싱된 등장인물 (Set → Array)
-let parsedCharacters = [];
 
 /* =====================
    DOM 참조
@@ -42,8 +35,6 @@ const characterCount = document.getElementById("characterCount");
 const chatContainer  = document.getElementById("chatContainer");
 const statsBox       = document.getElementById("statsBox");
 const toast          = document.getElementById("toast");
-const addCharBtn     = document.getElementById("addCharBtn");
-const addCharInput   = document.getElementById("addCharInput");
 
 /* =====================
    이벤트 등록
@@ -64,57 +55,6 @@ searchClear.addEventListener("click", () => {
 
 downloadBtn.addEventListener("click", exportHTML);
 downloadBtn.disabled = true;
-
-// 등장인물 추가 버튼
-addCharBtn.addEventListener("click", handleAddCharacter);
-addCharInput.addEventListener("keydown", e => {
-  if (e.key === "Enter") handleAddCharacter();
-});
-
-/* =====================
-   초기 렌더링
-   ===================== */
-// 페이지 로드 시 저장된 등장인물 목록 표시
-renderCharacterList();
-
-/* =====================
-   등장인물 수동 추가
-   ===================== */
-function handleAddCharacter() {
-  const name = addCharInput.value.trim().replace(/\s+/g, " ");
-  if (!name) return;
-
-  // 이미 존재하는 이름이면 스킵
-  const allChars = getMergedCharacters();
-  if (allChars.includes(name)) {
-    showToast(`⚠️ "${name}"은(는) 이미 목록에 있습니다.`);
-    addCharInput.value = "";
-    return;
-  }
-
-  manualCharacters.push(name);
-  saveManualCharacters();
-  addCharInput.value = "";
-  renderCharacterList();
-  showToast(`✅ "${name}" 추가되었습니다.`);
-}
-
-function saveManualCharacters() {
-  try {
-    localStorage.setItem("manualCharacters", JSON.stringify(manualCharacters));
-  } catch {
-    showToast("⚠️ 등장인물 저장 실패: 저장 공간이 부족합니다.");
-  }
-}
-
-/* =====================
-   등장인물 병합
-   parsedCharacters + manualCharacters 합쳐서 중복 제거 후 정렬
-   ===================== */
-function getMergedCharacters() {
-  const set = new Set([...parsedCharacters, ...manualCharacters]);
-  return [...set].sort();
-}
 
 /* =====================
    TXT 업로드
@@ -142,33 +82,37 @@ function handleTxtUpload(e) {
    ===================== */
 function parseChat(text) {
   chatData = [];
-  const newParsedSet = new Set();
+  const characters = new Set();
 
   text = text.replace(/^\uFEFF/, "");
   const lines = text.split(/\r?\n/);
 
   const timestampPrefix = /^\d{4}년 \d+월 \d+일\s(?:오전|오후)\s\d+:\d+/;
 
-  // ── 안드로이드: 콜론 기준만 사용 ──────────────────────
-  const regexAndroid = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)[,\s]*\s*([^:]+?)\s*:(.*)/;
+  // ── 안드로이드 포맷 ────────────────────────────────────
+  const regexAndroidMain  = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)[,\s]\s*(.+?)\s*:(.*)/;
+  const regexAndroidColon = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+):([^:]+):(.*)/;
 
-  // ── 아이폰: 빈도 기반 이름 확정 ───────────────────────
-   const regexIOSRaw = /^\d{4}년 \d+월 \d+일\s(?:오전|오후)\s\d+:\d+\s(?:\[[^\]]*\]\s+)?(\S+)\s/;
-   const regexIOS    = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)\s(?:\[[^\]]*\]\s+)?(\S+)\s(.*)/;
+  // ── 아이폰 포맷: 타임스탬프 + 선택적 태그 + 이름 후보 추출 ──
+  // "2026년 2월 11일 오전 1:28 [아쿠아리움] 홍연지 메시지"
+  // "2026년 2월 11일 오전 12:33 시스템 메시지"
+  const regexIOSRaw = /^\d{4}년 \d+월 \d+일\s(?:오전|오후)\s\d+:\d+\s(?:\[[^\]]+\]\s)?(\S+)\s/;
 
-   // 포맷 판별
-  const isAndroid = lines.some(l => regexAndroid.test(l));
+  // ── Step 1: 아이폰 포맷인지 판별 + 이름 후보 빈도 계산 ──
+  const isAndroid = lines.some(l => regexAndroidMain.test(l) || regexAndroidColon.test(l));
 
-  let knownNames = null;
+  let knownNames = null; // null이면 안드로이드 모드
 
   if (!isAndroid) {
-    // 아이폰: 1회 스캔으로 빈도 집계 → 2회 이상 = 이름
     const freq = {};
     lines.forEach(line => {
       const m = line.match(regexIOSRaw);
       if (!m) return;
-      freq[m[1]] = (freq[m[1]] || 0) + 1;
+      const token = m[1];
+      freq[token] = (freq[token] || 0) + 1;
     });
+
+    // 2회 이상 등장한 토큰 → 이름으로 확정
     knownNames = new Set(
       Object.entries(freq)
         .filter(([, count]) => count >= 2)
@@ -176,47 +120,53 @@ function parseChat(text) {
     );
   }
 
-  // 본 파싱
+  // ── 아이폰 파싱용 정규식 (태그 그룹 캡처 포함) ──
+  // match[4] = 태그 내용(있을 때), match[5] = 이름, match[6] = 메시지
+  const regexIOS = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)\s(?:\[([^\]]+)\]\s)?(\S+)\s(.*)/;
+
+  // ── Step 2: 본 파싱 ────────────────────────────────────
   lines.forEach(line => {
-    // 안드로이드
-    if (isAndroid) {
-      const match = line.match(regexAndroid);
-      if (match) {
-        const date    = match[1].trim();
-        const ampm    = match[2].trim();
-        const time    = match[3].trim();
-        const name    = match[4].trim().replace(/\s+/g, " ");
-        const message = match[5].trim();
-        if (!name) return;
-        chatData.push({ date, ampm, time, name, message });
-        newParsedSet.add(name);
-        return;
-      }
+    // 안드로이드 포맷 시도
+    let match = line.match(regexAndroidMain) || line.match(regexAndroidColon);
+    if (match) {
+      const date    = match[1].trim();
+      const ampm    = match[2].trim();
+      const time    = match[3].trim();
+      const name    = match[4].trim().replace(/\s+/g, " ");
+      const message = match.slice(5).join(":").trim();
+      if (!name) return;
+      chatData.push({ date, ampm, time, name, message });
+      characters.add(name);
+      return;
     }
 
-    // 아이폰
-    if (!isAndroid && knownNames !== null) {
-      const match = line.match(regexIOS);
+    // 아이폰 포맷 시도
+    if (knownNames !== null) {
+      match = line.match(regexIOS);
       if (match) {
         const date      = match[1].trim();
         const ampm      = match[2].trim();
         const time      = match[3].trim();
-        const candidate = match[4].trim(); // ✅ [5] → 4번 (태그 캡처 제거로 인덱스 당겨짐)
-      
+        const candidate = match[5].trim();
+
+        // ✅ 빈도 기반으로 확정된 이름인지 검증
         if (knownNames.has(candidate)) {
-          const message = match[5].trim(); // ✅ 5번
+          const message = match[6].trim();
           chatData.push({ date, ampm, time, name: candidate, message });
           characters.add(candidate);
           return;
         }
-      
-        const fullMessage = (match[4] + " " + match[5]).trim();
+
+        // 이름 후보가 아닐 경우 → 이름+이후 전체가 메시지인 경우
+        // (1회성 단어가 이름 자리에 온 엣지케이스 처리)
+        const fullMessage = (match[5] + " " + match[6]).trim();
+        // 직전 메시지가 같은 타임스탬프라면 이어붙임, 아니면 "알 수 없음"으로 저장
         chatData.push({ date, ampm, time, name: "알 수 없음", message: fullMessage });
         return;
       }
     }
 
-    // 멀티라인
+    // 타임스탬프 없는 줄 → 멀티라인으로 이어 붙임
     if (chatData.length > 0 && !timestampPrefix.test(line)) {
       chatData[chatData.length - 1].message += "\n" + line;
     }
@@ -230,57 +180,42 @@ function parseChat(text) {
     return;
   }
 
-  // ✅ parsedCharacters 갱신 (기존 profileImages는 건드리지 않음)
-  parsedCharacters = [...newParsedSet].sort();
-
   downloadBtn.disabled = false;
-  renderCharacterList();
-  renderStats();
+  createCharacterList([...characters]);
+  renderStats(characters.size);
   renderChat();
 }
-
 /* =====================
-   등장인물 목록 렌더링
-   manual + parsed 병합 표시
+   등장인물 목록 생성
+   (시스템 포함 모든 캐릭터 동일하게 처리)
    ===================== */
-function renderCharacterList() {
+function createCharacterList(characters) {
   characterList.innerHTML = "";
-  const merged = getMergedCharacters();
-  characterCount.textContent = merged.length;
+  characterCount.textContent = characters.length;
 
-  if (merged.length === 0) {
-    characterList.innerHTML = `
-      <div class="char-empty">
-        <p>아래에서 등장인물을<br>미리 추가하세요</p>
-      </div>`;
-    return;
-  }
-
-  merged.forEach(name => {
+  characters.sort().forEach(name => {
     const row = document.createElement("div");
     row.className = "character-row";
 
     const normalizedName = name.trim();
-    const imgSrc   = profileImages[normalizedName] || DEFAULT_PROFILE;
+    const imgSrc  = profileImages[normalizedName] || DEFAULT_PROFILE;
     const safeName = escapeHtml(normalizedName);
+
+    // ✅ 이미 사진이 있으면 ✏️, 없으면 +
     const hasProfile = !!profileImages[normalizedName];
-    const isManualOnly = !parsedCharacters.includes(normalizedName);
+    const iconLabel  = hasProfile ? "✏️" : "+";
 
     row.innerHTML = `
       <img src="${escapeAttr(imgSrc)}" alt="${safeName} 프로필">
       <span class="char-name">${safeName}</span>
-      ${isManualOnly ? `<span class="char-badge" title="수동 추가">✋</span>` : ""}
-      <span class="char-upload-btn" title="${hasProfile ? "프로필 사진 변경" : "프로필 사진 추가"}">${hasProfile ? "✏️" : "+"}</span>
-      ${isManualOnly ? `<span class="char-delete-btn" title="삭제">✕</span>` : ""}
+      <span class="char-upload-btn" title="${hasProfile ? "프로필 사진 변경" : "프로필 사진 추가"}">${iconLabel}</span>
       <input type="file" accept="image/*" hidden>
     `;
 
-    const input     = row.querySelector("input[type=file]");
-    const imgEl     = row.querySelector("img");
-    const editBtn   = row.querySelector(".char-upload-btn");
-    const deleteBtn = row.querySelector(".char-delete-btn");
+    const input   = row.querySelector("input[type=file]");
+    const imgEl   = row.querySelector("img");
+    const editBtn = row.querySelector(".char-upload-btn");
 
-    // 프로필 업로드
     editBtn.addEventListener("click", e => {
       e.stopPropagation();
       input.click();
@@ -299,46 +234,43 @@ function renderCharacterList() {
         const image = new Image();
         image.onload = () => {
           const canvas = document.createElement("canvas");
-          canvas.width = canvas.height = 64;
+          canvas.width  = 64;
+          canvas.height = 64;
           const ctx = canvas.getContext("2d");
+
           const size = Math.min(image.width, image.height);
           const sx = (image.width  - size) / 2;
           const sy = (image.height - size) / 2;
           ctx.drawImage(image, sx, sy, size, size, 0, 0, 64, 64);
 
           const compressed = canvas.toDataURL("image/jpeg", 0.8);
+
           profileImages[normalizedName] = compressed;
           imgEl.src = compressed;
+
+          // ✅ 업로드 후 아이콘을 ✏️로 교체
           editBtn.textContent = "✏️";
           editBtn.title = "프로필 사진 변경";
 
           try {
             localStorage.setItem("profileImages", JSON.stringify(profileImages));
             showToast(`✅ ${normalizedName} 프로필이 변경되었습니다.`);
-          } catch {
+          } catch (err) {
             showToast("⚠️ 프로필 저장 실패: 저장 공간이 부족합니다.");
+            console.warn("localStorage 저장 실패:", err);
           }
 
           renderChat(searchInput.value.trim());
         };
+
         image.onerror = () => showToast("❌ 이미지 로드 실패");
         image.src = reader.result;
       };
+
       reader.onerror = () => showToast("❌ 파일 읽기 실패");
       reader.readAsDataURL(file);
       input.value = "";
     });
-
-    // 수동 추가 인물만 삭제 가능
-    if (deleteBtn) {
-      deleteBtn.addEventListener("click", e => {
-        e.stopPropagation();
-        manualCharacters = manualCharacters.filter(n => n !== normalizedName);
-        saveManualCharacters();
-        renderCharacterList();
-        showToast(`🗑️ "${normalizedName}" 삭제되었습니다.`);
-      });
-    }
 
     characterList.appendChild(row);
   });
@@ -347,10 +279,9 @@ function renderCharacterList() {
 /* =====================
    통계
    ===================== */
-function renderStats() {
+function renderStats(charCount) {
   const total   = chatData.length;
   const dateSet = new Set(chatData.map(c => c.date));
-  const charCount = getMergedCharacters().length;
   statsBox.innerHTML =
     `총 <strong>${total.toLocaleString()}</strong>개 메시지<br>` +
     `<strong>${dateSet.size}</strong>일 · <strong>${charCount}</strong>명`;
@@ -374,6 +305,7 @@ function renderChat(keyword = "") {
   }
 
   const safeKeyword = keyword ? escapeRegex(keyword) : "";
+
   let currentDate = "";
   let matchCount  = 0;
   const fragment  = document.createDocumentFragment();
@@ -387,6 +319,7 @@ function renderChat(keyword = "") {
 
     matchCount++;
 
+    // 날짜 구분선
     if (currentDate !== chat.date) {
       currentDate = chat.date;
       const divider = document.createElement("div");
@@ -398,6 +331,7 @@ function renderChat(keyword = "") {
     const wrapper = document.createElement("div");
     wrapper.className = "message";
 
+    // 프로필 이미지 (모든 캐릭터 동일하게 — DEFAULT_PROFILE은 base64 내장)
     const profile = profileImages[chat.name] || DEFAULT_PROFILE;
 
     const profileImg = document.createElement("img");
@@ -423,6 +357,7 @@ function renderChat(keyword = "") {
     content.appendChild(nameEl);
     content.appendChild(bubble);
     content.appendChild(timeEl);
+
     wrapper.appendChild(profileImg);
     wrapper.appendChild(content);
     fragment.appendChild(wrapper);
@@ -449,14 +384,27 @@ function renderChat(keyword = "") {
    ===================== */
 function formatMessage(text, keyword = "") {
   text = escapeHtml(text);
+
+  // ✅ 줄바꿈 → <br> 변환 (escapeHtml 이후에 처리해야 안전)
   text = text.replace(/\n/g, "<br>");
-  text = text.replace(/@([가-힣a-zA-Z0-9_]+)/g, '<span class="mention">@$1</span>');
-  text = text.replace(/\((.*?)\)/g, '<span class="rp">($1)</span>');
+
+  text = text.replace(
+    /@([가-힣a-zA-Z0-9_]+)/g,
+    '<span class="mention">@$1</span>'
+  );
+
+  text = text.replace(
+    /\((.*?)\)/g,
+    '<span class="rp">($1)</span>'
+  );
 
   if (keyword) {
     const escapedKw = escapeHtml(keyword);
     const regex = new RegExp(escapeRegex(escapedKw), "gi");
-    text = text.replace(regex, match => `<span class="highlight">${match}</span>`);
+    text = text.replace(
+      regex,
+      match => `<span class="highlight">${match}</span>`
+    );
   }
 
   return text;
@@ -486,7 +434,10 @@ function escapeRegex(str) {
 }
 
 /* =====================
-   HTML 백업 (형식 유지)
+   HTML 백업
+   exportHTML: 저장된 HTML이 단독으로 스크롤되도록
+   · layout/height 의존 CSS 제거하고 단순 스크롤 문서로 재구성
+   · 프로필 이미지가 base64이므로 외부 파일 참조 없음
    ===================== */
 async function exportHTML() {
   try {
@@ -501,6 +452,7 @@ async function exportHTML() {
       }
     }
 
+    // ✅ 프로필 이미지를 CSS 변수로 추출 (메시지마다 반복 삽입 제거)
     let profileCss = ":root {\n";
     for (const [name, src] of Object.entries(profileImages)) {
       const safeName = name.replace(/[^a-zA-Z0-9가-힣]/g, "_");
@@ -508,9 +460,11 @@ async function exportHTML() {
     }
     profileCss += "}\n";
 
+    // ✅ img src 대신 CSS 변수 참조하도록 채팅 HTML 변환
     let chatHTML = chatContainer.innerHTML;
     for (const [name, src] of Object.entries(profileImages)) {
       const safeName = name.replace(/[^a-zA-Z0-9가-힣]/g, "_");
+      // base64 src를 CSS background-image 방식으로 교체
       chatHTML = chatHTML.replaceAll(
         `src="${src}"`,
         `src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" data-profile="${safeName}"`
@@ -532,6 +486,7 @@ body { display: block !important; padding: 20px; }
 #chatContainer { max-width: 760px; margin: 0 auto; overflow: visible !important; height: auto !important; flex: unset !important; }
 .message { animation: none !important; }
 
+/* ✅ CSS 변수로 프로필 이미지 적용 */
 ${Object.keys(profileImages).map(name => {
   const safeName = name.replace(/[^a-zA-Z0-9가-힣]/g, "_");
   return `img[data-profile="${safeName}"] { content: var(--profile-${safeName}); }`;
@@ -544,9 +499,9 @@ ${Object.keys(profileImages).map(name => {
 </html>`;
 
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-    const a    = document.createElement("a");
-    a.href     = URL.createObjectURL(blob);
-    const now  = new Date();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const now = new Date();
     const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}`;
     a.download = `band_backup_${dateStr}.html`;
     a.click();
