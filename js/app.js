@@ -82,27 +82,41 @@ function parseChat(text) {
 
   const lines = text.split(/\r?\n/);
 
-  // 쉼표 구분 포맷: 2024년 1월 1일 오전 9:30,홍길동:메시지
-  const regex    = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+),(.*?):(.*)/;
-  // 콜론 구분 포맷 (구버전): 2024년 1월 1일 오전 9:30:홍길동:메시지
-  const regexAlt = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+):(.*?):(.*)/;
+  const regexMain  = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)[,\s]\s*(.+?)\s*:(.*)/;
+  const regexColon = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+):([^:]+):(.*)/;
+
+  // 타임스탬프가 있는 줄인지 판별
+  const isTimestamp = line =>
+    regexMain.test(line) || regexColon.test(line);
 
   lines.forEach(line => {
-    const match = line.match(regex) || line.match(regexAlt);
-    if (!match) return;
+    const match = line.match(regexMain) || line.match(regexColon);
 
-    const date    = match[1].trim();
-    const ampm    = match[2].trim();
-    const time    = match[3].trim();
-    const name    = match[4].trim();
-    // slice(5).join(":") — 메시지 본문에 ':' 포함돼도 손실 없음
-    const message = match.slice(5).join(":").trim();
+    if (match) {
+      // 새 메시지 시작
+      const date    = match[1].trim();
+      const ampm    = match[2].trim();
+      const time    = match[3].trim();
+      const name    = match[4].trim();
+      const message = match.slice(5).join(":").trim();
 
-    if (!name || !message) return;
+      if (!name) return;
 
-    chatData.push({ date, ampm, time, name, message });
-    characters.add(name);
+      chatData.push({ date, ampm, time, name, message });
+      characters.add(name);
+
+    } else if (chatData.length > 0) {
+      // ✅ 핵심 수정: 이전 메시지의 연속 줄로 이어 붙임
+      const prev = chatData[chatData.length - 1];
+      prev.message += "\n" + line;
+    }
   });
+
+  // 각 메시지 앞뒤 공백 정리
+  chatData.forEach(c => { c.message = c.message.trim(); });
+
+  // 빈 메시지 제거 (이모티콘 전용 등 예외 허용하려면 이 줄 삭제)
+  chatData = chatData.filter(c => c.message.length > 0);
 
   if (chatData.length === 0) {
     showToast("⚠️ 파싱된 메시지가 없습니다. 파일 형식을 확인하세요.");
@@ -283,6 +297,9 @@ function renderChat(keyword = "") {
    ===================== */
 function formatMessage(text, keyword = "") {
   text = escapeHtml(text);
+
+  // ✅ 줄바꿈 → <br> 변환 (escapeHtml 이후에 처리해야 안전)
+  text = text.replace(/\n/g, "<br>");
 
   text = text.replace(
     /@([가-힣a-zA-Z0-9_]+)/g,
