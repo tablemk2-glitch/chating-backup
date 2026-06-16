@@ -378,22 +378,7 @@ body {
   padding-left: 2px;
 }
 
-/* 시스템 메시지 */
-.message.system {
-  justify-content: center;
-}
-.message.system .profile,
-.message.system .name { display: none; }
-.message.system .content { max-width: 100%; text-align: center; }
-.message.system .bubble {
-  background: var(--system-bg);
-  color: var(--text-sub);
-  font-size: 12px;
-  border-radius: 20px;
-  padding: 5px 14px;
-  box-shadow: none;
-}
-.message.system .time { text-align: center; }
+/* 시스템 메시지: 일반 캐릭터와 동일하게 표시 (별도 스타일 없음) */
 
 /* =====================
    강조 / 멘션 / RP
