@@ -169,19 +169,29 @@ function createCharacterList(characters) {
       }
 
       const reader = new FileReader();
-      reader.onload = () => {
-        profileImages[name] = reader.result;
-        img.src = reader.result;
-
-        try {
-          localStorage.setItem("profileImages", JSON.stringify(profileImages));
-        } catch (err) {
-          showToast("⚠️ 프로필 저장 실패: 저장 공간이 부족합니다.");
-          console.warn("localStorage 저장 실패:", err);
-        }
-
-        renderChat(searchInput.value.trim());
-      };
+         reader.onload = () => {
+           // ✅ 캔버스로 리사이즈 후 저장
+           const img = new Image();
+           img.onload = () => {
+             const canvas = document.createElement("canvas");
+             canvas.width = 64;   // 프로필은 64x64면 충분
+             canvas.height = 64;
+             const ctx = canvas.getContext("2d");
+             ctx.drawImage(img, 0, 0, 64, 64);
+             const compressed = canvas.toDataURL("image/jpeg", 0.75); // JPEG 75% 품질
+         
+             profileImages[name] = compressed;
+             imgEl.src = compressed;
+         
+             try {
+               localStorage.setItem("profileImages", JSON.stringify(profileImages));
+             } catch (err) {
+               showToast("⚠️ 프로필 저장 실패: 저장 공간이 부족합니다.");
+             }
+             renderChat(searchInput.value.trim());
+           };
+           img.src = reader.result;
+         };
       reader.readAsDataURL(file);
     });
 
@@ -354,7 +364,6 @@ function escapeRegex(str) {
    ===================== */
 async function exportHTML() {
   try {
-    // 채팅 렌더링 CSS만 추출 (레이아웃/topbar 제외한 핵심 스타일)
     let css = "";
     const linkEl = document.querySelector('link[rel="stylesheet"]');
     if (linkEl) {
@@ -366,9 +375,25 @@ async function exportHTML() {
       }
     }
 
-    const chatHTML = chatContainer.innerHTML;
+    // ✅ 프로필 이미지를 CSS 변수로 추출 (메시지마다 반복 삽입 제거)
+    let profileCss = ":root {\n";
+    for (const [name, src] of Object.entries(profileImages)) {
+      const safeName = name.replace(/[^a-zA-Z0-9가-힣]/g, "_");
+      profileCss += `  --profile-${safeName}: url("${src}");\n`;
+    }
+    profileCss += "}\n";
 
-    // 백업 HTML: body/html을 height:auto + overflow:auto로 덮어써서 스크롤 보장
+    // ✅ img src 대신 CSS 변수 참조하도록 채팅 HTML 변환
+    let chatHTML = chatContainer.innerHTML;
+    for (const [name, src] of Object.entries(profileImages)) {
+      const safeName = name.replace(/[^a-zA-Z0-9가-힣]/g, "_");
+      // base64 src를 CSS background-image 방식으로 교체
+      chatHTML = chatHTML.replaceAll(
+        `src="${src}"`,
+        `src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" data-profile="${safeName}"`
+      );
+    }
+
     const html = `<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -376,47 +401,34 @@ async function exportHTML() {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BAND 채팅 백업</title>
 <style>
-/* 원본 스타일 */
 ${css}
+${profileCss}
 
-/* 백업 전용 오버라이드: 앱 레이아웃(height:100dvh, overflow:hidden) 해제 */
-html, body {
-  height: auto !important;
-  overflow: auto !important;
-  background: #f0f2f5;
-}
-body {
-  display: block !important;
-  padding: 20px;
-}
-#chatContainer {
-  max-width: 760px;
-  margin: 0 auto;
-  overflow: visible !important;
-  height: auto !important;
-  flex: unset !important;
-}
-/* 애니메이션 제거 (정적 문서) */
+html, body { height: auto !important; overflow: auto !important; background: #f0f2f5; }
+body { display: block !important; padding: 20px; }
+#chatContainer { max-width: 760px; margin: 0 auto; overflow: visible !important; height: auto !important; flex: unset !important; }
 .message { animation: none !important; }
+
+/* ✅ CSS 변수로 프로필 이미지 적용 */
+${Object.keys(profileImages).map(name => {
+  const safeName = name.replace(/[^a-zA-Z0-9가-힣]/g, "_");
+  return `img[data-profile="${safeName}"] { content: var(--profile-${safeName}); }`;
+}).join("\n")}
 </style>
 </head>
 <body>
-<div id="chatContainer">
-${chatHTML}
-</div>
+<div id="chatContainer">${chatHTML}</div>
 </body>
 </html>`;
 
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-    const a    = document.createElement("a");
-    a.href     = URL.createObjectURL(blob);
-
-    const now     = new Date();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const now = new Date();
     const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}`;
-    a.download    = `band_backup_${dateStr}.html`;
+    a.download = `band_backup_${dateStr}.html`;
     a.click();
     URL.revokeObjectURL(a.href);
-
     showToast("✅ HTML 파일이 저장되었습니다.");
   } catch (error) {
     console.error(error);
