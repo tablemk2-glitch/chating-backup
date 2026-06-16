@@ -84,42 +84,61 @@ function parseChat(text) {
   chatData = [];
   const characters = new Set();
 
+  // BOM 제거
+  text = text.replace(/^\uFEFF/, "");
   const lines = text.split(/\r?\n/);
 
-  const regexMain  = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)[,\s]\s*(.+?)\s*:(.*)/;
-  const regexColon = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+):([^:]+):(.*)/;
+  // ── 안드로이드 포맷 ──────────────────────────────────────
+  // "2024년 1월 1일 오전 9:30, 홍길동 : 메시지"
+  // "2024년 1월 1일 오전 9:30:홍길동:메시지"
+  const regexAndroidMain  = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)[,\s]\s*(.+?)\s*:(.*)/;
+  const regexAndroidColon = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+):([^:]+):(.*)/;
 
-  // 타임스탬프가 있는 줄인지 판별
-  const isTimestamp = line =>
-    regexMain.test(line) || regexColon.test(line);
+  // ── 아이폰 포맷 ──────────────────────────────────────────
+  // "2026년 2월 11일 오전 12:34 [5] 사일영 메시지"
+  // "2026년 2월 11일 오전 12:33 시스템 메시지"
+  const regexIOS = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)\s(?:\[\d+\]\s)?([^\s].*?)\s(.+)/;
+
+  // 타임스탬프로 시작하는 줄인지 판별
+  const timestampPrefix = /^\d{4}년 \d+월 \d+일\s(?:오전|오후)\s\d+:\d+/;
 
   lines.forEach(line => {
-    const match = line.match(regexMain) || line.match(regexColon);
-
+    // 안드로이드 포맷 시도
+    let match = line.match(regexAndroidMain) || line.match(regexAndroidColon);
     if (match) {
-      // 새 메시지 시작
       const date    = match[1].trim();
       const ampm    = match[2].trim();
       const time    = match[3].trim();
-      const name = match[4].trim().replace(/\s+/g, " ");
+      const name    = match[4].trim().replace(/\s+/g, " ");
       const message = match.slice(5).join(":").trim();
-
       if (!name) return;
-
       chatData.push({ date, ampm, time, name, message });
       characters.add(name);
+      return;
+    }
 
-    } else if (chatData.length > 0) {
-      // ✅ 핵심 수정: 이전 메시지의 연속 줄로 이어 붙임
-      const prev = chatData[chatData.length - 1];
-      prev.message += "\n" + line;
+    // 아이폰 포맷 시도
+    match = line.match(regexIOS);
+    if (match) {
+      const date    = match[1].trim();
+      const ampm    = match[2].trim();
+      const time    = match[3].trim();
+      const name    = match[4].trim().replace(/\s+/g, " ");
+      const message = match[5].trim();
+      if (!name) return;
+      chatData.push({ date, ampm, time, name, message });
+      characters.add(name);
+      return;
+    }
+
+    // 타임스탬프 없는 줄 → 이전 메시지에 이어 붙임 (멀티라인)
+    if (chatData.length > 0 && !timestampPrefix.test(line)) {
+      chatData[chatData.length - 1].message += "\n" + line;
     }
   });
 
-  // 각 메시지 앞뒤 공백 정리
+  // 앞뒤 공백 정리 & 빈 메시지 제거
   chatData.forEach(c => { c.message = c.message.trim(); });
-
-  // 빈 메시지 제거 (이모티콘 전용 등 예외 허용하려면 이 줄 삭제)
   chatData = chatData.filter(c => c.message.length > 0);
 
   if (chatData.length === 0) {
