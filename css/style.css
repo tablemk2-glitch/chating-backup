@@ -1,1 +1,259 @@
 
+*{
+    box-sizing:border-box;
+}
+
+body{
+    margin:0;
+    background:#f2f3f5;
+    font-family:
+    "Malgun Gothic",
+    sans-serif;
+}
+
+/* 헤더 */
+
+.topbar{
+
+    position:sticky;
+    top:0;
+
+    background:white;
+
+    z-index:100;
+
+    box-shadow:
+    0 2px 8px rgba(0,0,0,.08);
+
+    padding:15px 25px;
+}
+
+.topbar h1{
+    margin:0 0 15px;
+}
+
+.toolbar{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+}
+
+.toolbar input[type=text]{
+
+    flex:1;
+
+    min-width:250px;
+
+    padding:10px;
+}
+
+/* 레이아웃 */
+
+.layout{
+
+    display:flex;
+
+    height:
+    calc(100vh - 110px);
+}
+
+/* 사이드바 */
+
+.sidebar{
+
+    width:300px;
+
+    background:white;
+
+    overflow:auto;
+
+    border-right:
+    1px solid #ddd;
+
+    padding:20px;
+}
+
+/* 채팅 영역 */
+
+#chatContainer{
+
+    flex:1;
+
+    overflow:auto;
+
+    padding:30px;
+}
+
+/* 등장인물 */
+
+.character-row{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:10px;
+
+    margin-bottom:10px;
+}
+
+.character-row img{
+
+    width:45px;
+    height:45px;
+
+    border-radius:50%;
+
+    object-fit:cover;
+}
+
+/* 날짜 */
+
+.date-divider{
+
+    display:flex;
+
+    align-items:center;
+
+    margin:40px 0;
+
+    color:#888;
+
+    font-weight:bold;
+}
+
+.date-divider::before,
+.date-divider::after{
+
+    content:"";
+
+    flex:1;
+
+    height:1px;
+
+    background:#d9d9d9;
+}
+
+.date-divider span{
+
+    padding:0 15px;
+}
+
+/* 메시지 */
+
+.message{
+
+    display:flex;
+
+    gap:12px;
+
+    margin-bottom:25px;
+}
+
+.profile{
+
+    width:60px;
+    height:60px;
+
+    border-radius:50%;
+
+    object-fit:cover;
+}
+
+.content{
+
+    flex:1;
+}
+
+.name{
+
+    font-weight:700;
+
+    font-size:22px;
+
+    margin-bottom:6px;
+}
+
+.bubble{
+
+    display:inline-block;
+
+    background:#ececec;
+
+    padding:18px 22px;
+
+    border-radius:25px;
+
+    max-width:850px;
+
+    line-height:1.7;
+
+    font-size:19px;
+
+    word-break:break-word;
+}
+
+.time{
+
+    margin-top:6px;
+
+    color:#888;
+
+    font-size:13px;
+}
+
+/* 시스템 */
+
+.system .bubble{
+
+    background:#e6f0ff;
+}
+
+/* 멘션 */
+
+.mention{
+
+    color:#2678ff;
+
+    font-weight:bold;
+}
+
+/* RP */
+
+.rp{
+
+    color:#666;
+
+    font-style:italic;
+}
+
+/* 검색 */
+
+.highlight{
+
+    background:#fff59d;
+}
+
+/* 모바일 */
+
+@media(max-width:900px){
+
+    .layout{
+        flex-direction:column;
+    }
+
+    .sidebar{
+
+        width:100%;
+
+        border-right:none;
+
+        border-bottom:
+        1px solid #ddd;
+    }
+
+    .bubble{
+
+        max-width:95%;
+    }
+}
