@@ -12,7 +12,11 @@ const DEFAULT_PROFILE = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3d
 // profileImages를 최상단에서 먼저 선언 (ReferenceError 방지)
 let profileImages = {};
 try {
-  profileImages = JSON.parse(localStorage.getItem("profileImages") || "{}");
+  const raw = JSON.parse(localStorage.getItem("profileImages") || "{}");
+  // 저장된 키를 정규화하여 재구성
+  for (const [key, val] of Object.entries(raw)) {
+    profileImages[key.trim().replace(/\s+/g, " ")] = val;
+  }
 } catch {
   profileImages = {};
 }
@@ -97,7 +101,7 @@ function parseChat(text) {
       const date    = match[1].trim();
       const ampm    = match[2].trim();
       const time    = match[3].trim();
-      const name    = match[4].trim();
+      const name = match[4].trim().replace(/\s+/g, " ");
       const message = match.slice(5).join(":").trim();
 
       if (!name) return;
@@ -141,8 +145,10 @@ function createCharacterList(characters) {
     const row = document.createElement("div");
     row.className = "character-row";
 
-    const imgSrc  = profileImages[name] || DEFAULT_PROFILE;
-    const safeName = escapeHtml(name);
+    // ✅ 이름을 정규화해서 저장/조회 키로 사용
+    const normalizedName = name.trim();
+    const imgSrc  = profileImages[normalizedName] || DEFAULT_PROFILE;
+    const safeName = escapeHtml(normalizedName);
 
     row.innerHTML = `
       <img src="${escapeAttr(imgSrc)}" alt="${safeName} 프로필">
@@ -152,7 +158,7 @@ function createCharacterList(characters) {
     `;
 
     const input   = row.querySelector("input[type=file]");
-    const img     = row.querySelector("img");
+    const imgEl   = row.querySelector("img");
     const editBtn = row.querySelector(".char-upload-btn");
 
     editBtn.addEventListener("click", e => {
@@ -169,30 +175,48 @@ function createCharacterList(characters) {
       }
 
       const reader = new FileReader();
-         reader.onload = () => {
-           // ✅ 캔버스로 리사이즈 후 저장
-           const img = new Image();
-           img.onload = () => {
-             const canvas = document.createElement("canvas");
-             canvas.width = 64;   // 프로필은 64x64면 충분
-             canvas.height = 64;
-             const ctx = canvas.getContext("2d");
-             ctx.drawImage(img, 0, 0, 64, 64);
-             const compressed = canvas.toDataURL("image/jpeg", 0.75); // JPEG 75% 품질
-         
-             profileImages[name] = compressed;
-             imgEl.src = compressed;
-         
-             try {
-               localStorage.setItem("profileImages", JSON.stringify(profileImages));
-             } catch (err) {
-               showToast("⚠️ 프로필 저장 실패: 저장 공간이 부족합니다.");
-             }
-             renderChat(searchInput.value.trim());
-           };
-           img.src = reader.result;
-         };
+      reader.onload = () => {
+        // ✅ 캔버스로 64×64 리사이즈 후 저장 (용량 절감)
+        const image = new Image();
+        image.onload = () => {
+          const canvas = document.createElement("canvas");
+          canvas.width  = 64;
+          canvas.height = 64;
+          const ctx = canvas.getContext("2d");
+
+          // ✅ 이미지 비율 유지하며 중앙 크롭
+          const size = Math.min(image.width, image.height);
+          const sx = (image.width  - size) / 2;
+          const sy = (image.height - size) / 2;
+          ctx.drawImage(image, sx, sy, size, size, 0, 0, 64, 64);
+
+          const compressed = canvas.toDataURL("image/jpeg", 0.8);
+
+          // ✅ 정규화된 이름으로 저장
+          profileImages[normalizedName] = compressed;
+          imgEl.src = compressed;
+
+          try {
+            localStorage.setItem("profileImages", JSON.stringify(profileImages));
+            showToast(`✅ ${normalizedName} 프로필이 변경되었습니다.`);
+          } catch (err) {
+            showToast("⚠️ 프로필 저장 실패: 저장 공간이 부족합니다.");
+            console.warn("localStorage 저장 실패:", err);
+          }
+
+          // ✅ 채팅 뷰도 즉시 갱신
+          renderChat(searchInput.value.trim());
+        };
+
+        image.onerror = () => showToast("❌ 이미지 로드 실패");
+        image.src = reader.result;
+      };
+
+      reader.onerror = () => showToast("❌ 파일 읽기 실패");
       reader.readAsDataURL(file);
+
+      // ✅ 같은 파일 재선택 가능하도록 초기화
+      input.value = "";
     });
 
     characterList.appendChild(row);
