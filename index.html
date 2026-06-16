@@ -29,21 +29,8 @@
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <h2>대화 참여자</h2>
-      <span class="character-count" id="characterCount">0</span>
+      <span class="character-count" id="characterCount"></span>
     </div>
-
-    <!-- 등장인물 추가 입력 -->
-    <div class="char-add-wrap">
-      <input
-        type="text"
-        id="addCharInput"
-        placeholder="이름 입력 후 추가"
-        autocomplete="off"
-        maxlength="30"
-      >
-      <button id="addCharBtn" title="추가">+</button>
-    </div>
-
     <div id="characterList"></div>
     <div class="sidebar-footer" id="statsBox"></div>
   </aside>
@@ -56,6 +43,7 @@
     </div>
   </main>
 </div>
+<!-- 토스트 알림 -->
 <div class="toast" id="toast"></div>
 <script src="js/app.js"></script>
 </body>
