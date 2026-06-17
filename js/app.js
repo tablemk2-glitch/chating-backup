@@ -205,11 +205,14 @@ function parseChat(text) {
       }
     }
 
-    // ✅ 멀티라인 이어붙이기 — 빈 줄은 스킵
+    // ✅ 멀티라인 이어붙이기 — 빈 줄, 타임스탬프, [태그] 시작 줄은 스킵
+    // [태그] 로 시작하는 줄은 타임스탬프 없는 새 발화이므로 이어붙이면 안 됨
+    const tagLinePrefix = /^\[[^\]]+\]\s/;
     if (
       chatData.length > 0 &&
       line.trim() !== "" &&
-      !timestampPrefix.test(line)
+      !timestampPrefix.test(line) &&
+      !tagLinePrefix.test(line)
     ) {
       chatData[chatData.length - 1].message += "\n" + line;
     }
