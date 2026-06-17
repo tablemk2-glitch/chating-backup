@@ -99,27 +99,21 @@ function parseChat(text) {
   const timestampPrefix = /^\d{4}년 \d+월 \d+일\s(?:오전|오후)\s\d+:\d+/;
 
   // ── 안드로이드 정규식 ──────────────────────────────────
-  // 신버전: "2024년 1월 1일 오전 9:30,홍길동:메시지"
-  //         "2024년 1월 1일 오전 9:30, 홍 길동 : 메시지"
-  // 공백구분: "2024년 1월 1일 오전 9:30 홍길동:메시지"
   const regexAndroidMain  = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)[,\s]\s*(.+?)\s*:(.*)/;
-  // 구버전(콜론구분): "2024년 1월 1일 오전 9:30:홍길동:메시지"
-  // 이름에 콜론이 없으므로 [^:]+ 로 안전하게 구분
   const regexAndroidColon = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+):([^:]+):(.*)/;
 
   // ── 포맷 자동 판별 ─────────────────────────────────────
-  // 안드로이드 포맷이면 true (콜론·쉼표 구분자가 있는 줄이 존재)
   const isAndroid = lines.some(
     l => regexAndroidMain.test(l) || regexAndroidColon.test(l)
   );
 
   // ── 아이폰 포맷 전처리: 이름 후보 빈도 계산 ───────────
-  // "2024년 1월 1일 오전 9:30 [태그] 이름 메시지" 구조에서
-  // 타임스탬프(+태그) 이후 1~3 단어 조합을 모두 카운팅 후 이름 확정
-  let knownNames = null; // null이면 안드로이드 모드
+  // ✅ [태그]가 항상 존재 → [태그] 이후 rest에서만 이름 후보 수집
+  // ✅ rest가 비어있는 줄은 시스템 메시지이므로 후보 수집 제외
+  let knownNames = null;
 
   if (!isAndroid) {
-    const regexIOSRest = /^\d{4}년 \d+월 \d+일\s(?:오전|오후)\s\d+:\d+\s(?:\[[^\]]+\]\s)?(.*)/;
+    const regexIOSRest = /^\d{4}년 \d+월 \d+일\s(?:오전|오후)\s\d+:\d+\s\[[^\]]+\]\s(.+)/;
     const freq = {};
 
     lines.forEach(line => {
@@ -133,19 +127,17 @@ function parseChat(text) {
       }
     });
 
-    // ✅ 수정①: 2회 이상 등장한 후보만 이름으로 확정 (1회성 노이즈 제거)
+    // 2회 이상 등장한 후보만 이름으로 확정 (1회성 노이즈 제거)
     const confirmed = new Set(
       Object.entries(freq)
         .filter(([, c]) => c >= 2)
         .map(([n]) => n)
     );
 
-    // ✅ 수정②: prefix 중복 제거
-    // "홍"이 confirmed에 있어도 "홍 길동"도 있으면 "홍"은 제거
-    // → 가장 긴 이름을 우선 인정
+    // prefix 중복 제거: 가장 긴 이름 우선
     knownNames = new Set();
     [...confirmed]
-      .sort((a, b) => b.length - a.length) // 긴 것 먼저
+      .sort((a, b) => b.length - a.length)
       .forEach(name => {
         const isRedundantPrefix = [...knownNames].some(n => n.startsWith(name + " "));
         if (!isRedundantPrefix) knownNames.add(name);
@@ -153,7 +145,8 @@ function parseChat(text) {
   }
 
   // ── 아이폰 본 파싱용 정규식 ───────────────────────────
-  const regexIOS = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)\s(?:\[([^\]]+)\]\s)?(.*)/;
+  // ✅ [태그] 필수, 태그 이후 나머지는 없을 수도 있음 (시스템 메시지)
+  const regexIOS = /^(\d{4}년 \d+월 \d+일)\s(오전|오후)\s(\d+:\d+)\s\[([^\]]+)\](.*)/;
 
   // knownNames에서 가장 긴 이름을 우선 매칭 (탐욕적 이름 탐색)
   function findIOSName(rest) {
@@ -164,7 +157,7 @@ function parseChat(text) {
         return [candidate, words.slice(len).join(" ")];
       }
     }
-    return [null, rest]; // 이름 미확정
+    return [null, rest];
   }
 
   // ── 본 파싱 루프 ───────────────────────────────────────
@@ -176,8 +169,7 @@ function parseChat(text) {
       const date    = matchA[1].trim();
       const ampm    = matchA[2].trim();
       const time    = matchA[3].trim();
-      const name    = normName(matchA[4]); // ✅ normName으로 통일
-      // slice(5).join(":") — 메시지 본문에 ':' 포함돼도 손실 없음
+      const name    = normName(matchA[4]);
       const message = matchA.slice(5).join(":").trim();
       if (!name) return;
       chatData.push({ date, ampm, time, name, message });
@@ -192,26 +184,32 @@ function parseChat(text) {
         const date = matchI[1].trim();
         const ampm = matchI[2].trim();
         const time = matchI[3].trim();
-        const rest = matchI[5].trim(); // 태그 이후 나머지
+        const tag  = matchI[4].trim();
+        const rest = matchI[5].trim();
 
-        const [name, message] = findIOSName(rest);
-
-        if (name) {
-          // ✅ 수정③: normName 적용 (이름 키 일관성)
-          const normN = normName(name);
-          chatData.push({ date, ampm, time, name: normN, message: message.trim() });
-          characters.add(normN);
+        if (rest === "") {
+          // ✅ [태그]만 있고 뒤가 비어있음 → 시스템 메시지
+          chatData.push({ date, ampm, time, name: "시스템", message: tag });
+          characters.add("시스템");
+        } else {
+          // ✅ [태그] 이름 메시지 → rest에서 이름 분리
+          const [name, message] = findIOSName(rest);
+          if (name) {
+            const normN = normName(name);
+            chatData.push({ date, ampm, time, name: normN, message: message.trim() });
+            characters.add(normN);
+          }
+          // 이름 미확정 줄은 조용히 스킵
         }
-        // 이름 미확정 줄은 조용히 스킵 (쓰레기 줄 방지)
         return;
       }
     }
 
-    // ✅ 수정④: 멀티라인 이어붙이기 — 빈 줄은 스킵
+    // ✅ 멀티라인 이어붙이기 — 빈 줄은 스킵
     if (
       chatData.length > 0 &&
-      line.trim() !== "" &&              // 빈 줄 제외
-      !timestampPrefix.test(line)        // 타임스탬프 줄 제외
+      line.trim() !== "" &&
+      !timestampPrefix.test(line)
     ) {
       chatData[chatData.length - 1].message += "\n" + line;
     }
@@ -475,9 +473,6 @@ async function exportHTML() {
       }
     }
 
-    // ✅ 수정⑤: chatContainer.innerHTML 그대로 사용
-    // 프로필 이미지가 이미 base64 src로 DOM에 렌더링되어 있으므로
-    // CSS content 트릭(브라우저 미지원) 없이 그대로 복사하면 이미지가 유지됨
     const chatHTML = chatContainer.innerHTML;
 
     const html = `<!DOCTYPE html>
