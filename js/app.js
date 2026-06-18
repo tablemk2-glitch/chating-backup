@@ -114,5 +114,312 @@ function parseChat(text) {
   renderChat();
 }
 
+/* =====================
+   등장인물 목록 생성
+   (시스템 포함 모든 캐릭터 동일하게 처리)
+   ===================== */
+function createCharacterList(characters) {
+  characterList.innerHTML = "";
+  characterCount.textContent = characters.length;
+
+  characters.sort().forEach(name => {
+    const row = document.createElement("div");
+    row.className = "character-row";
+
+    const normN    = normName(name);
+    const imgSrc   = profileImages[normN] || DEFAULT_PROFILE;
+    const safeName = escapeHtml(normN);
+    const hasProfile = !!profileImages[normN];
+
+    row.innerHTML = `
+      <img src="${escapeAttr(imgSrc)}" alt="${safeName} 프로필">
+      <span class="char-name">${safeName}</span>
+      <span class="char-upload-btn" title="${hasProfile ? "프로필 사진 변경" : "프로필 사진 추가"}">${hasProfile ? "✏️" : "+"}</span>
+      <input type="file" accept="image/*" hidden>
+    `;
+
+    const input   = row.querySelector("input[type=file]");
+    const imgEl   = row.querySelector("img");
+    const editBtn = row.querySelector(".char-upload-btn");
+
+    editBtn.addEventListener("click", e => {
+      e.stopPropagation();
+      input.click();
+    });
+
+    input.addEventListener("change", e => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      if (file.size > 1024 * 1024) {
+        showToast("⚠️ 이미지가 1MB를 초과합니다. 저장 공간에 주의하세요.");
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        // 64×64로 리사이즈 & JPEG 압축
+        const image = new Image();
+        image.onload = () => {
+          const canvas = document.createElement("canvas");
+          canvas.width  = 64;
+          canvas.height = 64;
+          const ctx  = canvas.getContext("2d");
+          const size = Math.min(image.width, image.height);
+          const sx   = (image.width  - size) / 2;
+          const sy   = (image.height - size) / 2;
+          ctx.drawImage(image, sx, sy, size, size, 0, 0, 64, 64);
+          const compressed = canvas.toDataURL("image/jpeg", 0.8);
+
+          profileImages[normN] = compressed;
+          imgEl.src = compressed;
+          editBtn.textContent = "✏️";
+          editBtn.title = "프로필 사진 변경";
+
+          try {
+            localStorage.setItem("profileImages", JSON.stringify(profileImages));
+            showToast(`✅ ${normN} 프로필이 변경되었습니다.`);
+          } catch (err) {
+            showToast("⚠️ 프로필 저장 실패: 저장 공간이 부족합니다.");
+            console.warn("localStorage 저장 실패:", err);
+          }
+
+          renderChat(searchInput.value.trim());
+        };
+        image.onerror = () => showToast("❌ 이미지 로드 실패");
+        image.src = reader.result;
+      };
+      reader.onerror = () => showToast("❌ 파일 읽기 실패");
+      reader.readAsDataURL(file);
+      input.value = "";
+    });
+
+    characterList.appendChild(row);
+  });
+}
+
+/* =====================
+   통계
+   ===================== */
+function renderStats(charCount) {
+  const total   = chatData.length;
+  const dateSet = new Set(chatData.map(c => c.date));
+  statsBox.innerHTML =
+    `총 <strong>${total.toLocaleString()}</strong>개 메시지<br>` +
+    `<strong>${dateSet.size}</strong>일 · <strong>${charCount}</strong>명`;
+}
+
+/* =====================
+   채팅 렌더링
+   ===================== */
+function renderChat(keyword = "") {
+  chatContainer.innerHTML = "";
+
+  if (chatData.length === 0) {
+    chatContainer.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">📄</div>
+        <p class="empty-title">TXT 파일을 불러오세요</p>
+        <p class="empty-desc">BAND 앱 → 채팅 → 더보기 → 내보내기로<br>저장한 .txt 파일을 업로드하세요.</p>
+        <label class="btn-upload-center" for="txtFile">파일 선택</label>
+      </div>`;
+    return;
+  }
+
+  const safeKeyword = keyword ? escapeRegex(keyword) : "";
+
+  let currentDate = "";
+  let matchCount  = 0;
+  const fragment  = document.createDocumentFragment();
+
+  chatData.forEach(chat => {
+    if (
+      safeKeyword &&
+      !chat.message.includes(keyword) &&
+      !chat.name.includes(keyword)
+    ) return;
+
+    matchCount++;
+
+    if (currentDate !== chat.date) {
+      currentDate = chat.date;
+      const divider = document.createElement("div");
+      divider.className = "date-divider";
+      divider.innerHTML = `<span>${escapeHtml(chat.date)}</span>`;
+      fragment.appendChild(divider);
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "message";
+
+    const profile = profileImages[chat.name] || DEFAULT_PROFILE;
+
+    const profileImg = document.createElement("img");
+    profileImg.className = "profile";
+    profileImg.src = profile;
+    profileImg.alt = chat.name;
+
+    const content = document.createElement("div");
+    content.className = "content";
+
+    const nameEl = document.createElement("div");
+    nameEl.className = "name";
+    nameEl.textContent = chat.name;
+
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.innerHTML = formatMessage(chat.message, keyword);
+
+    const timeEl = document.createElement("div");
+    timeEl.className = "time";
+    timeEl.textContent = `${chat.ampm} ${chat.time}`;
+
+    content.appendChild(nameEl);
+    content.appendChild(bubble);
+    content.appendChild(timeEl);
+    wrapper.appendChild(profileImg);
+    wrapper.appendChild(content);
+    fragment.appendChild(wrapper);
+  });
+
+  if (safeKeyword && matchCount === 0) {
+    const noResult = document.createElement("div");
+    noResult.className = "no-result";
+    noResult.textContent = `"${keyword}" 검색 결과가 없습니다.`;
+    fragment.appendChild(noResult);
+  }
+
+  chatContainer.appendChild(fragment);
+
+  if (!safeKeyword) {
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+  } else {
+    chatContainer.scrollTop = 0;
+  }
+}
+
+/* =====================
+   메시지 꾸미기
+   ===================== */
+function formatMessage(text, keyword = "") {
+  // 1. HTML 이스케이프
+  text = escapeHtml(text);
+  // 2. 줄바꿈 → <br> (escapeHtml 이후에 처리해야 안전)
+  text = text.replace(/\n/g, "<br>");
+  // 3. @멘션
+  text = text.replace(/@([가-힣a-zA-Z0-9_]+)/g, '<span class="mention">@$1</span>');
+  // 4. RP 괄호
+  text = text.replace(/\((.*?)\)/g, '<span class="rp">($1)</span>');
+  // 5. 검색어 강조
+  if (keyword) {
+    const escapedKw = escapeHtml(keyword);
+    const regex = new RegExp(escapeRegex(escapedKw), "gi");
+    text = text.replace(regex, match => `<span class="highlight">${match}</span>`);
+  }
+  return text;
+}
+
+/* =====================
+   HTML 이스케이프
+   ===================== */
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g,  "&amp;")
+    .replace(/</g,  "&lt;")
+    .replace(/>/g,  "&gt;")
+    .replace(/"/g,  "&quot;")
+    .replace(/'/g,  "&#39;");
+}
+
+function escapeAttr(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/* =====================
+   HTML 백업
+   ===================== */
+async function exportHTML() {
+  try {
+    let css = "";
+    const linkEl = document.querySelector('link[rel="stylesheet"]');
+    if (linkEl) {
+      try {
+        const res = await fetch(linkEl.href);
+        if (res.ok) css = await res.text();
+      } catch {
+        document.querySelectorAll("style").forEach(s => { css += s.textContent; });
+      }
+    }
+
+    const chatHTML = chatContainer.innerHTML;
+
+    const html = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BAND 채팅 백업</title>
+<style>
+${css}
+
+/* 백업 전용 오버라이드: 앱 레이아웃 해제 → 일반 스크롤 문서로 */
+html, body {
+  height: auto !important;
+  overflow: auto !important;
+  background: #f0f2f5;
+}
+body {
+  display: block !important;
+  padding: 20px;
+}
+#chatContainer {
+  max-width: 760px;
+  margin: 0 auto;
+  overflow: visible !important;
+  height: auto !important;
+  flex: unset !important;
+}
+.message { animation: none !important; }
+</style>
+</head>
+<body>
+<div id="chatContainer">
+${chatHTML}
+</div>
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const a    = document.createElement("a");
+    a.href     = URL.createObjectURL(blob);
+    const now     = new Date();
+    const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}`;
+    a.download    = `band_backup_${dateStr}.html`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showToast("✅ HTML 파일이 저장되었습니다.");
+  } catch (error) {
+    console.error(error);
+    showToast("❌ HTML 생성 실패: " + error.message);
+  }
+}
+
+/* =====================
+   토스트 알림
+   ===================== */
+let toastTimer = null;
+function showToast(message, duration = 2800) {
+  toast.textContent = message;
+  toast.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove("show"), duration);
+}
+
 // ... 이하 createCharacterList, renderStats, renderChat, formatMessage,
 //     escapeHtml, escapeAttr, escapeRegex, exportHTML, showToast 함수는 변경 없음
