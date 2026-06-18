@@ -420,6 +420,3 @@ function showToast(message, duration = 2800) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toast.classList.remove("show"), duration);
 }
-
-// ... 이하 createCharacterList, renderStats, renderChat, formatMessage,
-//     escapeHtml, escapeAttr, escapeRegex, exportHTML, showToast 함수는 변경 없음
